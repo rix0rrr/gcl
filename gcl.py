@@ -48,7 +48,7 @@ fill in certain parameters, declare them without a value:
 If 'message' is evaluated, but greeting happens to not be filled in, an error
 will be thrown. Expressions are lazily evaluated, so if 'message' is never
 evaluated, this error will never be thrown. To force eager evaluation, use
-complete() on a tuple.
+eager() on a tuple.
 
 Periods are used to dereference tuples:
 
@@ -73,8 +73,9 @@ Notes:
 
 """
 
-import pyparsing as p
+from os import path
 
+import pyparsing as p
 
 def do(*fns):
   def fg(args):
@@ -125,14 +126,28 @@ class Environment(object):
       return self.values[key]
     return self.parent[key]
 
+  def extend(self, d):
+    return Environment(d or {}, self)
 
 class Thunk(object):
   def eval(self, env):
     raise NotImplementedError('Whoops')
 
 
+class Null(Thunk):
+  """Null, evaluates to None."""
+  def __init__(self):
+    pass
+
+  def eval(self, env):
+    return None
+
+  def __repr__(self):
+    return "null";
+
+
 class Void(Thunk):
-  """An missing value."""
+  """A missing value."""
   def __init__(self):
     pass
 
@@ -177,7 +192,7 @@ def mkVar(s, loc, toks):
 
 
 class List(Thunk):
-  """A GCL list (either bound or unbound)."""
+  """A GCL list."""
   def __init__(self, values):
     self.values = values
 
@@ -186,6 +201,23 @@ class List(Thunk):
 
   def __repr__(self):
     return repr(self.values)
+
+
+class ArgList(Thunk):
+  """A paren-separated argument list.
+
+  This is actually a shallow wrapper for Python's list type. We can't use that
+  because pyparsing will automatically concatenate lists, which we don't want
+  in this case.
+  """
+  def __init__(self, values):
+    self.values = values
+
+  def eval(self, env):
+    return [v.eval(env) for v in self.values]
+
+  def __repr__(self):
+    return '(%s)' % ', '.join(repr(x) for x in self.values)
 
 
 class UnboundTuple(Thunk):
@@ -262,6 +294,14 @@ class Tuple(object):
   def items(self):
     return [(k, self[k]) for k in self.keys()]
 
+  def __call__(self, that):
+    """Application of this tuple to another tuple.
+
+    We want the effect of merging the tuples, and keeping the left tuple's
+    parent environment (which ought to be the same anyway).
+    """
+    return Tuple(dict(self.__items, **that.__items), self.__parent_env)
+
 
 class Application(Thunk):
   """Function application."""
@@ -271,11 +311,13 @@ class Application(Thunk):
 
   def eval(self, env):
     fn = self.functor.eval(env)
-    args = [a.eval(env) for a in self.args]
+    args = self.args.eval(env)
 
     if isinstance(fn, Tuple):
-      # Handle tuple application
-      if len(args) != 1 or not isinstance(args[0], Tuple):
+      # Handle tuple application. We check this here so we can give a nicer
+      # error messages, related to source as opposed to runtime values, but
+      # we do the actual application itself in the Tuple.
+      if not isinstance(args, Tuple):
         raise ValueError('Tuple (%r) must be applied to exactly one other tuple (got %r)' %
                          (self.functor, self.args))
 
@@ -283,7 +325,9 @@ class Application(Thunk):
     if not callable(fn):
       raise ValueError('Result of %r (%r) not callable' % (self.functor, fn))
 
-    return fn(*args)
+    if isinstance(args, list):
+      return fn(*args)
+    return fn(args)
 
 
 def mkApplications(atoms):
@@ -301,54 +345,93 @@ def mkApplications(atoms):
   return atoms[0]
 
 
-class Operation(Thunk):
-  def __init__(self, op, operands):
+class UnOp(Thunk):
+  def __init__(self, op, right):
     self.op = op
-    self.operands = operands
+    self.right = right
 
   def eval(self, env):
-    ops = [x.eval(env) for x in self.operands]
-    ret = ops[0]
-    for x in ops[1:]:
-      ret = self.combine(ret, x)
-    return ret
-
-  def combine(self, a, b):
-    if self.op == '*':
-      return a * b
-    if self.op == '/':
-      return a / b
-    if self.op == '+':
-      return a + b
-    if self.op == '-':
-      return a - b
-
-    raise LookupError('Unknown operator: %s' % self.op)
-
+    right = self.right.eval(env)
+    fn = unary_operators.get(self.op, None)
+    if fn is None:
+      raise LookupError('Unknown unary operator: %s' % self.op)
+    return fn(right)
 
   def __repr__(self):
-    return (' %s ' % self.op).join(repr(x) for x in self.operands)
+    return '%s%r' % (self.op, self.right)
 
-def mkOperation(op):
-  def combiner(tokens):
-    if len(tokens) == 1:
-      return tokens[0]
-    return Operation(op, tokens)
-  return combiner
+
+def mkUnOp(tokens):
+  return UnOp(tokens[0], tokens[1])
+
+
+class BinOp(Thunk):
+  def __init__(self, left, op, right):
+    self.left = left
+    self.op = op
+    self.right = right
+
+  def eval(self, env):
+    left = self.left.eval(env)
+    right = self.right.eval(env)
+
+    fn = binary_operators.get(self.op, None)
+    if fn is None:
+      raise LookupError('Unknown operator: %s' % self.op)
+
+    return fn(left, right)
+
+  def __repr__(self):
+    return ('%r %s %r' % (self.left, self.op, self.right))
+
+
+def mkBinOps(tokens):
+  tokens = list(tokens)
+  while len(tokens) > 1:
+    assert(len(tokens) >= 3)
+    tokens[0:3] = [BinOp(tokens[0], tokens[1], tokens[2])]
+  return tokens[0]
+
+
+class Deref(Thunk):
+  """Dereferencing of a dictionary-like object."""
+  def __init__(self, haystack, needle):
+    self.haystack = haystack
+    self.needle = needle
+
+  def eval(self, env):
+    return self.haystack.eval(env)[self.needle]
+
+  def __repr__(self):
+    return '%s.%s' % (self.haystack, self.needle)
+
+
+def mkDerefs(tokens):
+  tokens = list(tokens)
+  while len(tokens) > 1:
+    tokens[0:2] = [Deref(tokens[0], tokens[1])]
+  return tokens[0]
 
 #----------------------------------------------------------------------
 #  Grammar
 #
+
+def sym(sym):
+  return p.Literal(sym).suppress()
+
+
+def listMembers(sep, expr, what):
+  return p.Optional(p.delimitedList(expr, sep) +
+                    p.Optional(sep).suppress()).setParseAction(
+                        lambda ts: what(list(ts)))
+
 
 def bracketedList(l, r, sep, expr, what):
   """Parse bracketed list.
 
   Empty list is possible, as is a trailing separator.
   """
-  return (p.Literal(l) + p.Optional(
-    p.delimitedList(expr, sep) +
-    p.Optional(sep).suppress()) +
-    p.Literal(r)).setParseAction(do(inner, what))
+  return (sym(l) + listMembers(sep, expr, what) + sym(r)).setParseAction(head)
 
 expression = p.Forward()
 
@@ -357,11 +440,12 @@ comment = '#' + p.restOfLine
 identifier = p.Word(p.alphanums + '_')
 
 # Contants
-integer = p.Combine(p.Optional('-') + p.Word(p.nums)).setParseAction(do(head, int, Constant))
-floating = p.Combine(p.Optional('-') + p.Optional(p.Word(p.nums)) + '.' + p.Word(p.nums)).setParseAction(do(head, float, Constant))
+integer = p.Combine(p.Word(p.nums)).setParseAction(do(head, int, Constant))
+floating = p.Combine(p.Optional(p.Word(p.nums)) + '.' + p.Word(p.nums)).setParseAction(do(head, float, Constant))
 dq_string = p.QuotedString('"', escChar='\\', multiline=True).setParseAction(do(head, Constant))
 sq_string = p.QuotedString("'", escChar='\\', multiline=True).setParseAction(do(head, Constant))
 boolean = p.Or(['true', 'false']).setParseAction(do(head, mkBool, Constant))
+null = p.Keyword('null').setParseAction(Null)
 
 # List
 list_ = bracketedList('[', ']', ',', expression, List)
@@ -369,6 +453,7 @@ list_ = bracketedList('[', ']', ',', expression, List)
 # Tuple
 tuple_member = ((identifier + '=' + expression).setParseAction(lambda x: (x[0], x[2]))
                | (identifier + ~p.FollowedBy('=')).setParseAction(lambda x: (x[0], Void())))
+tuple_members = listMembers(';', tuple_member, UnboundTuple)
 tuple = bracketedList('{', '}', ';', tuple_member, UnboundTuple)
 
 # Variable
@@ -376,7 +461,11 @@ variable = identifier.copy().setParseAction(mkVar)
 
 # Argument list will live by itself as a atom. Actually, it's a tuple, but we
 # don't call it that because we use that term for something else already :)
-arg_list = bracketedList('(', ')', ',', expression, list)
+arg_list = bracketedList('(', ')', ',', expression, ArgList)
+
+parenthesized_expr = (sym('(') + expression + ')').setParseAction(head)
+
+unary_op = (p.oneOf('-') + expression).setParseAction(mkUnOp)
 
 atom = (floating
         | integer
@@ -384,30 +473,83 @@ atom = (floating
         | sq_string
         | boolean
         | list_
-        | arg_list
         | tuple
+        | null
         | variable
+        | parenthesized_expr
+        | unary_op
         )
 
-# All application is juxtaposition, but sometimes it's juxtaposition against an
-# unnamed tuple (arglist): foo (1, 2, 3).
-application = (atom + p.ZeroOrMore(p.Group(atom))).setParseAction(mkApplications)
+# We have two different forms of function application, so they can have 2
+# different precedences. This one: fn(args), which binds stronger than
+# dereferencing (fn(args).attr == (fn(args)).attr)
+applic1 = (atom + p.ZeroOrMore(arg_list)).setParseAction(mkApplications)
 
-term = (application + p.ZeroOrMore(p.Literal('*').suppress() + application)).setParseAction(mkOperation('*'))
+# Dereferencing of an expression (obj.bar)
+deref = (applic1 + p.ZeroOrMore(p.Literal('.').suppress() + identifier)).setParseAction(mkDerefs)
 
-expr = (term + p.ZeroOrMore(p.Literal('+').suppress() + term)).setParseAction(mkOperation('+'))
+# Juxtaposition function application (fn arg), must be 1-arg every time
+applic2 = (deref + p.ZeroOrMore(deref)).setParseAction(mkApplications)
+
+factor = applic2
+
+term = (factor + p.ZeroOrMore(p.oneOf('* /') + factor)).setParseAction(mkBinOps)
+
+# Expression, at this point we're combining terms
+expr = (term + p.ZeroOrMore(p.oneOf('+ -') + term)).setParseAction(mkBinOps)
 
 expression << expr
 
+# Two entry points: start at an arbitrary expression, or expect the top-level
+# scope to be a tuple.
 start = expression.ignore(comment)
+start_tuple = tuple_members.ignore(comment)
 
-# Notes: operator precedence
+# Notes:
 # Includes must be w.r.t. the INCLUDING file name (pass in thru global?)
+# 'super' or 'base' of some sort?
+# if-then-else
+
+
+#----------------------------------------------------------------------
+#  Standard library of environment functions
+#
+
+def eager(x):
+  """Force eager evaluation of a Thunk, and turn a Tuple into a dict eagerly.
+
+  This forces that there are no unbound variables at parsing time (as opposed
+  to later when the variables may be accessed).
+
+  Only eagerly evaluates one level.
+  """
+  if not hasattr(x, 'items'):
+    # The Thunk has been evaluated already, so that was easy :)
+    return x
+
+  return dict(x.items())
+
+binary_operators = {
+    '*': lambda x, y: x * y,
+    '+': lambda x, y: x + y,
+    '-': lambda x, y: x - y,
+    '/': lambda x, y: x / y,
+    }
+
+unary_operators = {
+    '-': lambda x: -x
+    }
+
+default_env = Environment({
+  'eager': eager,
+  'path_join': path.join
+  })
+
 
 #----------------------------------------------------------------------
 #  Top-level functions
 #
 
-def loads(s):
+def loads(s, filename=None, resolver=None, implicit_tuple=True):
   """Load a GCL expression from a string."""
-  return start.parseString(s, parseAll=True)[0]
+  return (start_tuple if implicit_tuple else start).parseString(s, parseAll=True)[0]

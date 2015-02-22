@@ -9,25 +9,3 @@
 # Why not XML?
 
 - Puh-leez.
-
-
-
-{ 
-  base = {
-    name;
-    hello = 'hello ' + name;
-  }
-
-  mine = base { name = 'hoi' }
-}
-
-
-{ 
-  base = {
-    hello = 'hello';
-  }
-
-  mine = base {
-    tak = base.hello;
-  }
-}

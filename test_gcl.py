@@ -2,8 +2,9 @@ import unittest
 
 import gcl
 
-def parse(s, env=None):
-  return gcl.loads(s).eval(env or {})
+def parse(s, env=None, implicit_tuple=False):
+  return (gcl.loads(s, implicit_tuple=implicit_tuple)
+             .eval(gcl.default_env.extend(env)))
 
 class TestBasics(unittest.TestCase):
   def testInteger(self):
@@ -22,6 +23,9 @@ class TestBasics(unittest.TestCase):
   def testDoubleQuotedString(self):
     self.assertEquals("foo", parse('"foo"'))
 
+  def testNull(self):
+    self.assertEquals(None, parse('null'))
+
   def testBool(self):
     self.assertEquals(True, parse('true'))
     self.assertEquals(False, parse('false'))
@@ -36,6 +40,12 @@ class TestBasics(unittest.TestCase):
     self.assertEquals(3, parse("""
       3
       # comment"""))
+
+  def testImplicitTupleBasic(self):
+    self.assertEquals([('foo', 3)], parse('foo=3;', implicit_tuple=True).items())
+
+  def testImplicitTupleEmpty(self):
+    self.assertEquals([], parse('', implicit_tuple=True).items())
 
 
 class TestList(unittest.TestCase):
@@ -108,17 +118,27 @@ class TestTuple(unittest.TestCase):
     self.assertEquals(2, t['child']['bar'])
 
   def testDereferencing(self):
-    pass
+    t = parse("""{
+      obj = {
+        attr = 1;
+      };
+      one = obj.attr;
+    }""");
+    self.assertEquals(1, t['one'])
+
+  def testDereferencingFromEnvironment(self):
+    x = parse('obj.attr', env={ 'obj': { 'attr' : 1 }})
+    self.assertEquals(1, x)
 
 
 class TestApplication(unittest.TestCase):
   def setUp(self):
-    env = {}
-    env['inc'] = lambda x: x + 1
-    env['foo'] = lambda: lambda: 3
-    env['add'] = lambda x, y: x + y
-    env['curry_add'] = lambda x: lambda y: x + y
-    self.env = gcl.Environment(env)
+    self.env = {}
+    self.env['inc'] = lambda x: x + 1
+    self.env['foo'] = lambda: lambda: 3
+    self.env['add'] = lambda x, y: x + y
+    self.env['curry_add'] = lambda x: lambda y: x + y
+    self.env['mk_obj'] = lambda x: { 'attr': x }
 
   def testFunctionApplication(self):
     self.assertEquals(3, parse('inc(2)', env=self.env))
@@ -139,10 +159,30 @@ class TestApplication(unittest.TestCase):
     self.assertEquals(5, parse('curry_add 2 3', env=self.env))
 
   def testTupleComposition(self):
-    pass
+    t = parse('{ foo = 1 } { bar = 2 }')
+    self.assertEquals([
+      ('bar', 2),
+      ('foo', 1),
+      ], sorted(t.items()))
 
-  def testDereferencingFromFunctionCall(self):
-    pass
+  def testIndirectTupleComposition(self):
+    t = parse("""
+    {
+      base = {
+        name;
+        hello = 'hello ' + name;
+      };
+
+      mine = base { name = 'Johnny' }
+    }
+    """)
+    self.assertEquals('hello Johnny', t['mine']['hello'])
+
+  def testDereferencingFromFunctionCall1(self):
+    self.assertEquals(10, parse('mk_obj(10).attr', env=self.env))
+
+  def testDereferencingFromFunctionCall2(self):
+    self.assertEquals(10, parse('(mk_obj 10).attr', env=self.env))
 
 
 class TestExpressions(unittest.TestCase):
@@ -154,3 +194,15 @@ class TestExpressions(unittest.TestCase):
 
   def testMul(self):
     self.assertEquals(6, parse('2 * 3'))
+
+  def testPrecedence(self):
+    self.assertEqual(10, parse('2 * 3 + 4'))
+
+
+class TestStandardLibrary(unittest.TestCase):
+  def testPathJoin(self):
+    self.assertEquals('a/b/c', parse("path_join('a', 'b', 'c')"))
+
+
+class TestIncludes(unittest.TestCase):
+  pass
