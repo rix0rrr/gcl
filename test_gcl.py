@@ -2,6 +2,9 @@ import unittest
 
 import gcl
 
+def parse_ast(s, implicit_tuple=False):
+  return gcl.loads(s, implicit_tuple=implicit_tuple)
+
 def parse(s, env=None, implicit_tuple=False):
   return (gcl.loads(s, implicit_tuple=implicit_tuple)
              .eval(gcl.default_env.extend(env)))
@@ -197,6 +200,16 @@ class TestExpressions(unittest.TestCase):
 
   def testPrecedence(self):
     self.assertEqual(10, parse('2 * 3 + 4'))
+
+  def testNot(self):
+    self.assertEqual(False, parse('not true'))
+
+  def testLogicalOpsAndPrecedence(self):
+    self.assertEquals(True, parse('0 < 5 and 2 <= 2'))
+
+  def testConditional(self):
+    self.assertEquals(1, parse('if 0 < 5 then 1 else 2'))
+    self.assertEquals(2, parse('if 5 < 0 then 1 else 2'))
 
 
 class TestStandardLibrary(unittest.TestCase):

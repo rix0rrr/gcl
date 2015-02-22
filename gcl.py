@@ -84,6 +84,11 @@ def do(*fns):
     return args
   return fg
 
+def doapply(what):
+  def fn(args):
+    return what(*args)
+  return fn
+
 def head(x):
   return x[0]
 
@@ -98,6 +103,58 @@ def mkBool(s):
 
 def drop(x):
   return []
+
+#----------------------------------------------------------------------
+#  Standard library of environment functions
+#
+
+def eager(x):
+  """Force eager evaluation of a Thunk, and turn a Tuple into a dict eagerly.
+
+  This forces that there are no unbound variables at parsing time (as opposed
+  to later when the variables may be accessed).
+
+  Only eagerly evaluates one level.
+  """
+  if not hasattr(x, 'items'):
+    # The Thunk has been evaluated already, so that was easy :)
+    return x
+
+  return dict(x.items())
+
+builtin_functions = {
+    'eager': eager,
+    'path_join': path.join
+    }
+
+
+# Binary operators, by precedence level
+binary_operators = [
+    {
+      '*': lambda x, y: x * y,
+      '/': lambda x, y: x / y,
+    }, {
+      '+': lambda x, y: x + y,
+      '-': lambda x, y: x - y,
+    }, {
+      '==': lambda x, y: x == y,
+      '!=': lambda x, y: x != y,
+      '<': lambda x, y: x < y,
+      '<=': lambda x, y: x <= y,
+      '>': lambda x, y: x > y,
+      '>=': lambda x, y: x >= y,
+    }, {
+      'and': lambda x, y: x and y,
+      'or': lambda x, y: x or y,
+    }]
+
+all_binary_operators = {k: v for os in binary_operators for k, v in os.items()}
+
+unary_operators = {
+    '-': lambda x: -x,
+    'not': lambda x: not x,
+    }
+
 
 #----------------------------------------------------------------------
 #  Model
@@ -167,10 +224,8 @@ class Constant(Thunk):
     return self.value
 
   def __repr__(self):
-    if self.value == True:
-      return 'true'
-    if self.value == False:
-      return 'false'
+    if type(self.value) == bool:
+      return 'true' if self.value else 'false'
     return repr(self.value)
 
 
@@ -329,6 +384,9 @@ class Application(Thunk):
       return fn(*args)
     return fn(args)
 
+  def __repr__(self):
+    return '%r(%r)' % (self.functor, self.args)
+
 
 def mkApplications(atoms):
   """Make a sequence of applications from a list of tokens.
@@ -375,7 +433,7 @@ class BinOp(Thunk):
     left = self.left.eval(env)
     right = self.right.eval(env)
 
-    fn = binary_operators.get(self.op, None)
+    fn = all_binary_operators.get(self.op, None)
     if fn is None:
       raise LookupError('Unknown operator: %s' % self.op)
 
@@ -412,6 +470,23 @@ def mkDerefs(tokens):
     tokens[0:2] = [Deref(tokens[0], tokens[1])]
   return tokens[0]
 
+
+class Condition(Thunk):
+  def __init__(self, cond, then, else_):
+    self.cond = cond
+    self.then = then
+    self.else_ = else_
+
+  def eval(self, env):
+    if self.cond.eval(env):
+      return self.then.eval(env)
+    else:
+      return self.else_.eval(env)
+
+  def __repr__(self):
+    return 'if %r then %r else %r' % (self.cond, self.then, self.else_)
+
+
 #----------------------------------------------------------------------
 #  Grammar
 #
@@ -432,6 +507,9 @@ def bracketedList(l, r, sep, expr, what):
   Empty list is possible, as is a trailing separator.
   """
   return (sym(l) + listMembers(sep, expr, what) + sym(r)).setParseAction(head)
+
+
+keywords = ['and', 'or', 'not', 'if', 'then', 'else']
 
 expression = p.Forward()
 
@@ -456,8 +534,8 @@ tuple_member = ((identifier + '=' + expression).setParseAction(lambda x: (x[0], 
 tuple_members = listMembers(';', tuple_member, UnboundTuple)
 tuple = bracketedList('{', '}', ';', tuple_member, UnboundTuple)
 
-# Variable
-variable = identifier.copy().setParseAction(mkVar)
+# Variable (can't be any of the keywords, which may have lower matching priority)
+variable = ~p.oneOf(' '.join(keywords)) + identifier.copy().setParseAction(mkVar)
 
 # Argument list will live by itself as a atom. Actually, it's a tuple, but we
 # don't call it that because we use that term for something else already :)
@@ -465,7 +543,11 @@ arg_list = bracketedList('(', ')', ',', expression, ArgList)
 
 parenthesized_expr = (sym('(') + expression + ')').setParseAction(head)
 
-unary_op = (p.oneOf('-') + expression).setParseAction(mkUnOp)
+unary_op = (p.oneOf(' '.join(unary_operators.keys())) + expression).setParseAction(mkUnOp)
+
+if_then_else = (sym('if') + expression +
+                sym('then') + expression +
+                sym('else') + expression).setParseAction(doapply(Condition))
 
 atom = (floating
         | integer
@@ -475,9 +557,10 @@ atom = (floating
         | list_
         | tuple
         | null
-        | variable
-        | parenthesized_expr
         | unary_op
+        | parenthesized_expr
+        | if_then_else
+        | variable
         )
 
 # We have two different forms of function application, so they can have 2
@@ -491,14 +574,19 @@ deref = (applic1 + p.ZeroOrMore(p.Literal('.').suppress() + identifier)).setPars
 # Juxtaposition function application (fn arg), must be 1-arg every time
 applic2 = (deref + p.ZeroOrMore(deref)).setParseAction(mkApplications)
 
-factor = applic2
+# All binary operators at various precedence levels go here:
+# This piece of code does the moral equivalent of:
+#
+#     T = F*F | F/F | F
+#     E = T+T | T-T | T
+#
+# etc.
+term = applic2
+for op_level in binary_operators:
+  operator_syms = ' '.join(op_level.keys())
+  term = (term + p.ZeroOrMore(p.oneOf(operator_syms) + term)).setParseAction(mkBinOps)
 
-term = (factor + p.ZeroOrMore(p.oneOf('* /') + factor)).setParseAction(mkBinOps)
-
-# Expression, at this point we're combining terms
-expr = (term + p.ZeroOrMore(p.oneOf('+ -') + term)).setParseAction(mkBinOps)
-
-expression << expr
+expression << term
 
 # Two entry points: start at an arbitrary expression, or expect the top-level
 # scope to be a tuple.
@@ -512,43 +600,10 @@ start_tuple = tuple_members.ignore(comment)
 
 
 #----------------------------------------------------------------------
-#  Standard library of environment functions
-#
-
-def eager(x):
-  """Force eager evaluation of a Thunk, and turn a Tuple into a dict eagerly.
-
-  This forces that there are no unbound variables at parsing time (as opposed
-  to later when the variables may be accessed).
-
-  Only eagerly evaluates one level.
-  """
-  if not hasattr(x, 'items'):
-    # The Thunk has been evaluated already, so that was easy :)
-    return x
-
-  return dict(x.items())
-
-binary_operators = {
-    '*': lambda x, y: x * y,
-    '+': lambda x, y: x + y,
-    '-': lambda x, y: x - y,
-    '/': lambda x, y: x / y,
-    }
-
-unary_operators = {
-    '-': lambda x: -x
-    }
-
-default_env = Environment({
-  'eager': eager,
-  'path_join': path.join
-  })
-
-
-#----------------------------------------------------------------------
 #  Top-level functions
 #
+
+default_env = Environment(builtin_functions)
 
 def loads(s, filename=None, resolver=None, implicit_tuple=True):
   """Load a GCL expression from a string."""
