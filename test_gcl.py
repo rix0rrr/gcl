@@ -218,4 +218,21 @@ class TestStandardLibrary(unittest.TestCase):
 
 
 class TestIncludes(unittest.TestCase):
-  pass
+  def parse(self, fname, s):
+    return gcl.loads(s, filename=fname, loader=self.loader).eval(gcl.default_env)
+
+  def loader(self, base, rel):
+    target_path = gcl.find_relative(base, rel)
+    return gcl.loads('loaded_from = %r' % target_path).eval(gcl.default_env)
+
+  def testRelativeInclude(self):
+    t = self.parse('/home/me/file', 'inc = include "other_file"')
+    self.assertEquals('/home/me/other_file', t['inc']['loaded_from'])
+
+  def testRelativeIncludeUp(self):
+    t = self.parse('/home/me/file', 'inc = include "../other_file"')
+    self.assertEquals('/home/other_file', t['inc']['loaded_from'])
+
+  def testAbsoluteInclude(self):
+    t = self.parse('/home/me/file', 'inc = include "/other_file"')
+    self.assertEquals('/other_file', t['inc']['loaded_from'])

@@ -104,6 +104,22 @@ def mkBool(s):
 def drop(x):
   return []
 
+def find_relative(current_file, rel_path):
+  if rel_path.startswith('/'):
+    return rel_path
+  else:
+    return path.normpath(path.join(path.dirname(current_file), rel_path))
+
+def default_loader(current_file, rel_path):
+  """Default file-based loader."""
+  target_path = find_relative(current_file, rel_path)
+
+  if not path.isfile(target_path):
+    raise IOError('No such file: %r' % target_path)
+
+  return load(target_path).eval(default_env)
+
+
 #----------------------------------------------------------------------
 #  Standard library of environment functions
 #
@@ -159,6 +175,14 @@ unary_operators = {
 #----------------------------------------------------------------------
 #  Model
 #
+
+class ParseContext(object):
+  def __init__(self):
+    self.filename = '<from string>'
+    self.loader = None
+
+the_context = ParseContext()
+
 
 class EmptyEnvironment(object):
   def __getitem__(self, key):
@@ -487,12 +511,35 @@ class Condition(Thunk):
     return 'if %r then %r else %r' % (self.cond, self.then, self.else_)
 
 
+class Include(Thunk):
+  def __init__(self, file_ref):
+    self.file_ref = file_ref
+    self.current_file = the_context.filename
+    self.loader = the_context.loader
+
+  def eval(self, env):
+    file_ref = self.file_ref.eval(env)
+    if not isinstance(file_ref, basestring):
+      raise ValueError('Included argument (%r) must be a string, got %r' %
+                       (self.file_ref, file_ref))
+
+    return self.loader(self.current_file, file_ref)
+
+  def __repr__(self):
+    return 'include %r' % self.file_ref
+
+
+
 #----------------------------------------------------------------------
 #  Grammar
 #
 
 def sym(sym):
   return p.Literal(sym).suppress()
+
+
+def kw(kw):
+  return p.Keyword(kw).suppress()
 
 
 def listMembers(sep, expr, what):
@@ -509,7 +556,7 @@ def bracketedList(l, r, sep, expr, what):
   return (sym(l) + listMembers(sep, expr, what) + sym(r)).setParseAction(head)
 
 
-keywords = ['and', 'or', 'not', 'if', 'then', 'else']
+keywords = ['and', 'or', 'not', 'if', 'then', 'else', 'include']
 
 expression = p.Forward()
 
@@ -545,9 +592,11 @@ parenthesized_expr = (sym('(') + expression + ')').setParseAction(head)
 
 unary_op = (p.oneOf(' '.join(unary_operators.keys())) + expression).setParseAction(mkUnOp)
 
-if_then_else = (sym('if') + expression +
-                sym('then') + expression +
-                sym('else') + expression).setParseAction(doapply(Condition))
+if_then_else = (kw('if') + expression +
+                kw('then') + expression +
+                kw('else') + expression).setParseAction(doapply(Condition))
+
+include = (kw('include') + expression).setParseAction(doapply(Include))
 
 atom = (floating
         | integer
@@ -560,6 +609,7 @@ atom = (floating
         | unary_op
         | parenthesized_expr
         | if_then_else
+        | include
         | variable
         )
 
@@ -594,10 +644,7 @@ start = expression.ignore(comment)
 start_tuple = tuple_members.ignore(comment)
 
 # Notes:
-# Includes must be w.r.t. the INCLUDING file name (pass in thru global?)
 # 'super' or 'base' of some sort?
-# if-then-else
-
 
 #----------------------------------------------------------------------
 #  Top-level functions
@@ -605,6 +652,16 @@ start_tuple = tuple_members.ignore(comment)
 
 default_env = Environment(builtin_functions)
 
-def loads(s, filename=None, resolver=None, implicit_tuple=True):
+def load(filename, loader=None, implicit_tuple=True):
+  """Load a GCL expression from a file."""
+  with file(filename, 'r') as f:
+    return loads(f.read(),
+                 filename=filename,
+                 loader=loader,
+                 implicit_tuple=implicit_tuple)
+
+def loads(s, filename=None, loader=None, implicit_tuple=True):
   """Load a GCL expression from a string."""
+  the_context.filename = filename or '<string>'
+  the_context.loader = loader or default_loader
   return (start_tuple if implicit_tuple else start).parseString(s, parseAll=True)[0]
