@@ -3,3 +3,4 @@ build
 dist
 __*__
 *.egg-info
+publish
