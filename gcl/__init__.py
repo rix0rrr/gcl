@@ -1,76 +1,7 @@
 """
 GCL -- Generic Configuration Language
 
-GCL is built around named tuples, written with curly braces like this:
-
-  {
-    number = 1;
-    string =  'value';
-    bool =  true;
-    expression = number * 2;
-    list = [ 1, 2, 3 ];
-  }
-
-Semicolons are considered separators, so may be ommitted after the last
-statement.
-
-GCL has an expression language. Juxtaposition of two expressions (A B) means
-tuple application, which returns a new tuple combining the keys of A and B,
-such that B overwrites the keys of A already present.
-
-This looks especially convenient when A is a reference and B is a tuple
-literal:
-
-  {
-    foo_app = {
-      program = 'foo';
-      cwd = '/tmp';
-    }
-
-    my_foo = foo_app {
-      cwd = '/home';
-    }
-  }
-
-This makes it possible to do abstraction and parameterization (just define
-tuples with the common components). To require derivations of a tuple to
-fill in certain parameters, declare them without a value:
-
-  {
-    greet = {
-      greeting;
-      message = greeting + ' world';
-    };
-
-    hello_world = greet { message='hello' }
-  }
-
-If 'message' is evaluated, but greeting happens to not be filled in, an error
-will be thrown. Expressions are lazily evaluated, so if 'message' is never
-evaluated, this error will never be thrown. To force eager evaluation, use
-eager() on a tuple.
-
-Periods are used to dereference tuples:
-
-  {
-    tuple = {
-      foo = 3;
-    }
-
-    that_foo = tuple.foo;
-  }
-
-Lines starting with # are comments.
-
-Files can be included with 'include()', which takes a path relative to the file
-the directive appears in (only in file context).
-
-Notes:
-
-  - Application is left-associative.
-  - Function application of one argument allows omission of the parens like
-    tuple application.
-
+See README.md for an explanation of GCL and concepts.
 """
 
 from os import path
