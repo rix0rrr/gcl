@@ -83,7 +83,7 @@ class TestTuple(unittest.TestCase):
   def testUnboundIdentifiers(self):
     t = parse('{ foo; }')
     try:
-      print t['foo']
+      print(t['foo'])
       self.fail('Should have thrown')
     except LookupError:
       pass  # Expected
@@ -91,7 +91,7 @@ class TestTuple(unittest.TestCase):
   def testIndirectUnbound(self):
     t = parse('{ foo; bar = foo + 3; }')
     try:
-      print t['bar']
+      print(t['bar'])
       self.fail('Should have thrown')
     except LookupError:
       pass  # Expected

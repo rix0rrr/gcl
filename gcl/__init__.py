@@ -50,6 +50,14 @@ def default_loader(current_file, rel_path):
 
   return load(target_path).eval(default_env)
 
+# Python 2 and 3 compatible string check
+try:
+    isinstance("", basestring)
+    def is_str(s):
+        return isinstance(s, basestring)
+except NameError:
+    def is_str(s):
+        return isinstance(s, str)
 
 #----------------------------------------------------------------------
 #  Standard library of environment functions
@@ -289,7 +297,7 @@ class Tuple(object):
         return x.eval(self.__parent_env)
 
       return x.eval(self.env())
-    except Exception, e:
+    except Exception as e:
       raise LookupError("Can't get value for %r: %s" % (key, e))
 
   def __contains__(self, key):
@@ -450,7 +458,7 @@ class Include(Thunk):
 
   def eval(self, env):
     file_ref = self.file_ref.eval(env)
-    if not isinstance(file_ref, basestring):
+    if not is_str(file_ref):
       raise ValueError('Included argument (%r) must be a string, got %r' %
                        (self.file_ref, file_ref))
 
