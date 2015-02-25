@@ -604,16 +604,34 @@ start_tuple = tuple_members.ignore(comment)
 
 default_env = Environment(builtin_functions)
 
-def load(filename, loader=None, implicit_tuple=True):
-  """Load a GCL expression from a file."""
+def reads(s, filename=None, loader=None, implicit_tuple=True):
+  """Load but don't evaluate a GCL expression from a string."""
+  the_context.filename = filename or '<string>'
+  the_context.loader = loader or default_loader
+  return (start_tuple if implicit_tuple else start).parseString(s, parseAll=True)[0]
+
+
+def read(filename, loader=None, implicit_tuple=True):
+  """Load but don't evaluate a GCL expression from a file."""
   with file(filename, 'r') as f:
-    return loads(f.read(),
+    return reads(f.read(),
                  filename=filename,
                  loader=loader,
                  implicit_tuple=implicit_tuple)
 
-def loads(s, filename=None, loader=None, implicit_tuple=True):
-  """Load a GCL expression from a string."""
-  the_context.filename = filename or '<string>'
-  the_context.loader = loader or default_loader
-  return (start_tuple if implicit_tuple else start).parseString(s, parseAll=True)[0]
+
+def loads(s, filename=None, loader=None, implicit_tuple=True, env=None):
+  """Load and evaluate a GCL expression from a string."""
+  ast = reads(s, filename=filename, loader=loader, implicit_tuple=implicit_tuple)
+  return ast.eval(env or default_env)
+
+
+def load(filename, loader=None, implicit_tuple=True, env=None):
+  """Load and evaluate a GCL expression from a file."""
+  with file(filename, 'r') as f:
+    return loads(f.read(),
+                 filename=filename,
+                 loader=loader,
+                 implicit_tuple=implicit_tuple,
+                 env=env)
+

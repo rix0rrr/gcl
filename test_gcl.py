@@ -3,10 +3,10 @@ import unittest
 import gcl
 
 def parse_ast(s, implicit_tuple=False):
-  return gcl.loads(s, implicit_tuple=implicit_tuple)
+  return gcl.reads(s, implicit_tuple=implicit_tuple)
 
 def parse(s, env=None, implicit_tuple=False):
-  return (gcl.loads(s, implicit_tuple=implicit_tuple)
+  return (gcl.reads(s, implicit_tuple=implicit_tuple)
              .eval(gcl.default_env.extend(env)))
 
 class TestBasics(unittest.TestCase):
