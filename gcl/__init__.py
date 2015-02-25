@@ -127,6 +127,9 @@ class EmptyEnvironment(object):
   def __getitem__(self, key):
     raise LookupError('Unbound variable: %r' % key)
 
+  def __contains__(self, key):
+    return False
+
 
 class SourceLocation(object):
   def __init__(self, string, offset):
@@ -145,6 +148,11 @@ class Environment(object):
     if key in self.values:
       return self.values[key]
     return self.parent[key]
+
+  def __contains__(self, key):
+    if key in self.values:
+      return True
+    return key in self.parent
 
   def extend(self, d):
     return Environment(d or {}, self)
@@ -278,6 +286,11 @@ class Tuple(object):
 
   def dict(self):
     return self.__items
+
+  def get(self, key, default=None):
+    if key in self:
+      return self[key]
+    return default
 
   def __getitem__(self, key):
     try:
