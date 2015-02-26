@@ -35,20 +35,37 @@ def mkBool(s):
 def drop(x):
   return []
 
-def find_relative(current_file, rel_path):
+def find_relative(current_dir, rel_path):
   if rel_path.startswith('/'):
     return rel_path
   else:
-    return path.normpath(path.join(path.dirname(current_file), rel_path))
+    return path.normpath(path.join(current_dir, rel_path))
 
-def default_loader(current_file, rel_path):
-  """Default file-based loader."""
-  target_path = find_relative(current_file, rel_path)
 
-  if not path.isfile(target_path):
-    raise IOError('No such file: %r' % target_path)
+def loader_with_search_path(search_path):
+  """Return a searching loader function.
 
-  return load(target_path).eval(default_env)
+  The loader will search all directories on the given search path.
+  """
+  def loader(current_file, rel_path):
+    """Default file-based loader."""
+    base = path.dirname(current_file)
+    target_path = find_relative(base, rel_path)
+    if not path.isfile(target_path):
+      for search in search_path:
+        target_path = path.normpath(path.join(search, rel_path))
+        if path.isfile(target_path):
+          break
+
+    if not path.isfile(target_path):
+      raise IOError('No such file: %r, searched %s' %
+                    (current_file, ':'.join([base] + search_path)))
+
+    return load(target_path)
+  return loader
+
+# Default loader doesn't have any search path
+default_loader = loader_with_search_path([])
 
 # Python 2 and 3 compatible string check
 try:
