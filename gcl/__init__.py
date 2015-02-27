@@ -350,6 +350,16 @@ class Tuple(object):
     """
     return Tuple(dict(self.__items, **that.__items), self.__parent_env)
 
+  def _render(self, key):
+    if key in self:
+      return '%s = %r' % (key, self[key])
+    else:
+      return '%s' % key
+
+
+  def __repr__(self):
+    return '{%s}' % '; '.join(self._render(k) for k in self.keys())
+
 
 class Application(Thunk):
   """Function application."""
