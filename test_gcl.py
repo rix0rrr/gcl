@@ -1,4 +1,5 @@
 import unittest
+from os import path
 
 import gcl
 
@@ -8,6 +9,11 @@ def parse_ast(s, implicit_tuple=False):
 def parse(s, env=None, implicit_tuple=False):
   return (gcl.reads(s, implicit_tuple=implicit_tuple)
              .eval(gcl.default_env.extend(env)))
+
+
+def parse_tuple(s, env=None):
+  return parse(s, env, implicit_tuple=True)
+
 
 class TestBasics(unittest.TestCase):
   def testInteger(self):
@@ -108,18 +114,6 @@ class TestTuple(unittest.TestCase):
     t = parse('{ foo = 3; bar = foo; }', { 'foo': 2 })
     self.assertEquals(3, t['bar'])
 
-  def testDontInheritFromEnclosingTuple(self):
-    # We don't want the child to implicitly inherit from the parent
-    # scope--that'll lead to an unmaintainable mess, especially across
-    # includes.
-    t = parse("""{
-      foo = 3;
-      child = {
-        bar = foo;
-      }
-    }""", { 'foo': 2 })
-    self.assertEquals(2, t['child']['bar'])
-
   def testDereferencing(self):
     t = parse("""{
       obj = {
@@ -212,6 +206,97 @@ class TestExpressions(unittest.TestCase):
     self.assertEquals(2, parse('if 5 < 0 then 1 else 2'))
 
 
+class TestScoping(unittest.TestCase):
+  def testOuterValueAvailableInInnerOne(self):
+    t = parse_tuple("""
+    x = 3;
+    y = {
+      z = x;
+    };
+    """)
+    self.assertEquals(3, t['y']['z'])
+
+  def testCompositedScopeNotAvailable(self):
+    # Why is this? Well, it makes sense if there's also an x in the outer
+    # scope. See next test.
+    t = parse_tuple("""
+    base = {
+      x = 3;
+    };
+    y = base {
+      z = x;
+    }
+    """)
+    self.assertRaises(LookupError, lambda: t['y']['z'])
+
+  def testVariableCantBeOverridenByContentsOfTuple(self):
+    t = parse_tuple("""
+    x = 1;
+    base = {
+      x = 2;
+    };
+    y = base {
+      z = x;
+    }
+    """)
+    # z should be 1, not 2 (even though we composite it with base, which also
+    # has an x)
+    # FIXME: To implement this: composition of tuples is not a single tuple,
+    # but a construct that behaves like a tuple but has 2 lookups.
+    print t['y']
+    self.assertEquals(1, t['y']['z'])
+
+  def testCompositedScopeAvailableIfDeclared(self):
+    t = parse_tuple("""
+    base = {
+      x = 3;
+    };
+    y = base {
+      x;
+      z = x;
+    }
+    """)
+    self.assertEquals(3, t['y']['z'])
+
+  def testTwoLocalreferences(self):
+    t = parse_tuple("""
+    base = {
+      x = 3;
+      w = x
+    };
+    y = base {
+      x = 4;
+      z = x;
+    }
+    """)
+    self.assertEquals(3, t['base']['w'])
+    self.assertEquals(4, t['y']['z'])
+
+  def testLocalValueOverridesOuterOne(self):
+    t = parse_tuple("""
+    x = 3;
+    y = {
+      x = 2;
+      z = x;
+    }
+    """)
+    self.assertEquals(2, t['y']['z'])
+
+  def testLocalValueOverridesOuterOne_EvenIfUnbound(self):
+    t = parse_tuple("""
+    x = 3;
+    y = {
+      x;
+      z = x;
+    }
+    """)
+    try:
+      t['y']['z']
+      self.fail('Should have thrown')
+    except LookupError, e:
+      pass  # Expected
+
+
 class TestStandardLibrary(unittest.TestCase):
   def testPathJoin(self):
     self.assertEquals('a/b/c', parse("path_join('a', 'b', 'c')"))
@@ -219,11 +304,11 @@ class TestStandardLibrary(unittest.TestCase):
 
 class TestIncludes(unittest.TestCase):
   def parse(self, fname, s):
-    return gcl.loads(s, filename=fname, loader=self.loader).eval(gcl.default_env)
+    return gcl.loads(s, filename=fname, loader=self.loader)
 
   def loader(self, base, rel):
-    target_path = gcl.find_relative(base, rel)
-    return gcl.loads('loaded_from = %r' % target_path).eval(gcl.default_env)
+    target_path = gcl.find_relative(path.dirname(base), rel)
+    return gcl.loads('loaded_from = %r' % target_path)
 
   def testRelativeInclude(self):
     t = self.parse('/home/me/file', 'inc = include "other_file"')

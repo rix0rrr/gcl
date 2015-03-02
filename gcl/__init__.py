@@ -8,6 +8,8 @@ from os import path
 
 import pyparsing as p
 
+from . import functions
+
 def do(*fns):
   def fg(args):
     for fn in fns:
@@ -75,57 +77,6 @@ try:
 except NameError:
     def is_str(s):
         return isinstance(s, str)
-
-#----------------------------------------------------------------------
-#  Standard library of environment functions
-#
-
-def eager(x):
-  """Force eager evaluation of a Thunk, and turn a Tuple into a dict eagerly.
-
-  This forces that there are no unbound variables at parsing time (as opposed
-  to later when the variables may be accessed).
-
-  Only eagerly evaluates one level.
-  """
-  if not hasattr(x, 'items'):
-    # The Thunk has been evaluated already, so that was easy :)
-    return x
-
-  return dict(x.items())
-
-builtin_functions = {
-    'eager': eager,
-    'path_join': path.join
-    }
-
-
-# Binary operators, by precedence level
-binary_operators = [
-    {
-      '*': lambda x, y: x * y,
-      '/': lambda x, y: x / y,
-    }, {
-      '+': lambda x, y: x + y,
-      '-': lambda x, y: x - y,
-    }, {
-      '==': lambda x, y: x == y,
-      '!=': lambda x, y: x != y,
-      '<': lambda x, y: x < y,
-      '<=': lambda x, y: x <= y,
-      '>': lambda x, y: x > y,
-      '>=': lambda x, y: x >= y,
-    }, {
-      'and': lambda x, y: x and y,
-      'or': lambda x, y: x or y,
-    }]
-
-all_binary_operators = {k: v for os in binary_operators for k, v in os.items()}
-
-unary_operators = {
-    '-': lambda x: -x,
-    'not': lambda x: not x,
-    }
 
 
 #----------------------------------------------------------------------
@@ -197,7 +148,7 @@ class Void(Thunk):
     pass
 
   def eval(self, env):
-    raise ValueError('Missing value')
+    raise ValueError('Unbound value')
 
   def __repr__(self):
     return '<unbound>'
@@ -289,13 +240,7 @@ class Tuple(object):
   not before.
 
   The parent_env is the environment in which we do lookups for values that are
-  not in this Tuple.
-
-  For a plain Tuple, this MUST be the global environment (because we don't want
-  child tuples to implicitly inherit all values of all parent
-  scopes--Borgconfig did that and it was horrible).
-
-  For composited tuples, this will be the left tuple's environment.
+  not in this Tuple (the lexically enclosing scope).
   """
   def __init__(self, items, parent_env):
     self.__items = items
@@ -311,22 +256,14 @@ class Tuple(object):
 
   def __getitem__(self, key):
     try:
-      x = self.__items[key]
+      x = self.get_thunk(key)
 
       # Check if this is a Thunk that needs to be lazily evaluated before we
       # return it.
-      if not isinstance(x, Thunk):
-        return x
+      if isinstance(x, Thunk):
+        return x.eval(self.env())
 
-      if isinstance(x, UnboundTuple):
-        # We make an exception if the Thunk is a tuple. In that case, we
-        # don't evaluate in OUR environment (to prevent the tuple from
-        # inheriting variables it's not supposed to). Instead, the tuple will
-        # evaluate in our PARENT environment (which should be the global
-        # environment).
-        return x.eval(self.__parent_env)
-
-      return x.eval(self.env())
+      return x
     except Exception as e:
       raise LookupError("Can't get value for %r: %s" % (key, e))
 
@@ -342,23 +279,76 @@ class Tuple(object):
   def items(self):
     return [(k, self[k]) for k in self.keys()]
 
-  def __call__(self, that):
-    """Application of this tuple to another tuple.
+  def is_void(self, k):
+    return k in self and isinstance(self.__items[k], Void)
 
-    We want the effect of merging the tuples, and keeping the left tuple's
-    parent environment (which ought to be the same anyway).
-    """
-    return Tuple(dict(self.__items, **that.__items), self.__parent_env)
+  def get_thunk(self, k):
+    return self.__items[k]
+
+  def __call__(self, that):
+    return CompositeTuple(self, that)
 
   def _render(self, key):
     if key in self:
-      return '%s = %r' % (key, self[key])
+      return '%s = %r' % (key, self.get_thunk(key))
     else:
       return '%s' % key
 
-
   def __repr__(self):
     return '{%s}' % '; '.join(self._render(k) for k in self.keys())
+
+
+class LazyEnv(object):
+  def __init__(self, names, then, alt):
+    self.names = names
+    self.then = then
+    self.alt = alt
+
+  def __getitem__(self, key):
+    if key in self.names:
+      return self.then[key]
+    return self.alt[key]
+
+
+class CompositeTuple(object):
+  def __init__(self, left, right):
+    self.left = left
+    self.left_env = self._mk_env(left, right)
+    self.right = right
+    self.right_env = self._mk_env(right, left)
+
+  def __contains__(self, key):
+    return key in self.right or key in self.left
+
+  def keys(self):
+    return list(set(self.left.keys()).union(set(self.right.keys())))
+
+  def items(self):
+    return [(k, self[k]) for k in self.keys()]
+
+  def _mk_env(self, tup, alt):
+    voids = [k for k in tup.keys() if tup.is_void(k)]
+    return LazyEnv(voids, alt, tup.env())
+
+  def get_thunk(self, key):
+    # If right has the value, we get it from right (unless it's a Void),
+    # otherwise we get it from left.
+    if key in self.right:
+      return self.right.get_thunk(key)
+    return self.left.get_thunk(key)
+
+  def __getitem__(self, key):
+    if key in self.right:
+      print 'gettin it from right'
+      return self.right.get_thunk(key).eval(self.right_env)
+    print 'gettin it from left'
+    return self.left.get_thunk(key).eval(self.left_env)
+
+  def __call__(self, that):
+    return CompositeTuple(self, that)
+
+  def __repr__(self):
+    return '%r %r' % (self.left, self.right)
 
 
 class Application(Thunk):
@@ -413,7 +403,7 @@ class UnOp(Thunk):
 
   def eval(self, env):
     right = self.right.eval(env)
-    fn = unary_operators.get(self.op, None)
+    fn = functions.unary_operators.get(self.op, None)
     if fn is None:
       raise LookupError('Unknown unary operator: %s' % self.op)
     return fn(right)
@@ -436,7 +426,7 @@ class BinOp(Thunk):
     left = self.left.eval(env)
     right = self.right.eval(env)
 
-    fn = all_binary_operators.get(self.op, None)
+    fn = functions.all_binary_operators.get(self.op, None)
     if fn is None:
       raise LookupError('Unknown operator: %s' % self.op)
 
@@ -569,7 +559,7 @@ arg_list = bracketedList('(', ')', ',', expression, ArgList)
 
 parenthesized_expr = (sym('(') + expression + ')').setParseAction(head)
 
-unary_op = (p.oneOf(' '.join(unary_operators.keys())) + expression).setParseAction(mkUnOp)
+unary_op = (p.oneOf(' '.join(functions.unary_operators.keys())) + expression).setParseAction(mkUnOp)
 
 if_then_else = (kw('if') + expression +
                 kw('then') + expression +
@@ -611,7 +601,7 @@ applic2 = (deref + p.ZeroOrMore(deref)).setParseAction(mkApplications)
 #
 # etc.
 term = applic2
-for op_level in binary_operators:
+for op_level in functions.binary_operators:
   operator_syms = ' '.join(op_level.keys())
   term = (term + p.ZeroOrMore(p.oneOf(operator_syms) + term)).setParseAction(mkBinOps)
 
@@ -629,7 +619,7 @@ start_tuple = tuple_members.ignore(comment)
 #  Top-level functions
 #
 
-default_env = Environment(builtin_functions)
+default_env = Environment(functions.builtin_functions)
 
 def reads(s, filename=None, loader=None, implicit_tuple=True):
   """Load but don't evaluate a GCL expression from a string."""
