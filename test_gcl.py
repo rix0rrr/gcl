@@ -181,6 +181,14 @@ class TestApplication(unittest.TestCase):
   def testDereferencingFromFunctionCall2(self):
     self.assertEquals(10, parse('(mk_obj 10).attr', env=self.env))
 
+  def testTripleApplication(self):
+    t = parse("""
+    { x = 1 } { y = 2 } { z = 3 }
+    """)
+    self.assertEquals(1, t['x'])
+    self.assertEquals(2, t['y'])
+    self.assertEquals(3, t['z'])
+
 
 class TestExpressions(unittest.TestCase):
   def testAdd(self):
@@ -295,6 +303,20 @@ class TestScoping(unittest.TestCase):
       self.fail('Should have thrown')
     except LookupError, e:
       pass  # Expected
+
+  def testRelativeImportWithDeclaration(self):
+    t = parse("""
+    { x = 1;
+      y = x;
+    } {
+      y;
+      x = 2;
+      z = y;
+    }
+    """)
+    # At this point, what should be the value of z?
+    # To be consistent and locally analyzable, the value can only be 1.
+    self.assertEquals(1, t['z'])
 
 
 class TestStandardLibrary(unittest.TestCase):

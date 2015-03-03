@@ -280,7 +280,7 @@ class Tuple(object):
     return [(k, self[k]) for k in self.keys()]
 
   def is_void(self, k):
-    return k in self and isinstance(self.__items[k], Void)
+    return k in self and isinstance(self.get_thunk(k), Void)
 
   def get_thunk(self, k):
     return self.__items[k]
@@ -330,6 +330,13 @@ class CompositeTuple(object):
     voids = [k for k in tup.keys() if tup.is_void(k)]
     return LazyEnv(voids, alt, tup.env())
 
+  def is_void(self, k):
+    return k in self and isinstance(self.get_thunk(k), Void)
+
+  def env(self):
+    # Hah. We don't return anything, and it doesn't seem to matter.
+    pass
+
   def get_thunk(self, key):
     # If right has the value, we get it from right (unless it's a Void),
     # otherwise we get it from left.
@@ -339,9 +346,7 @@ class CompositeTuple(object):
 
   def __getitem__(self, key):
     if key in self.right:
-      print 'gettin it from right'
       return self.right.get_thunk(key).eval(self.right_env)
-    print 'gettin it from left'
     return self.left.get_thunk(key).eval(self.left_env)
 
   def __call__(self, that):
