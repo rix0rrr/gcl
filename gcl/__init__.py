@@ -10,6 +10,8 @@ import pyparsing as p
 
 from . import functions
 
+__version__ = '0.2.0'
+
 def do(*fns):
   def fg(args):
     for fn in fns:
