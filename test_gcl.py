@@ -251,7 +251,7 @@ class TestScoping(unittest.TestCase):
     # has an x)
     # FIXME: To implement this: composition of tuples is not a single tuple,
     # but a construct that behaves like a tuple but has 2 lookups.
-    print t['y']
+    print(t['y'])
     self.assertEquals(1, t['y']['z'])
 
   def testCompositedScopeAvailableIfDeclared(self):
@@ -301,7 +301,7 @@ class TestScoping(unittest.TestCase):
     try:
       t['y']['z']
       self.fail('Should have thrown')
-    except LookupError, e:
+    except LookupError as e:
       pass  # Expected
 
   def testRelativeImportWithDeclaration(self):
