@@ -279,6 +279,20 @@ class TestScoping(unittest.TestCase):
     """)
     self.assertEquals(3, t['y']['z'])
 
+  def testCompositedValueInSubExpression(self):
+    t = parse_tuple("""
+    base = {
+      x = 3;
+    };
+    y = base {
+      x;  # <-- only if I put this here
+      sub = {
+        z = x;
+      }
+    }
+    """)
+    self.assertEquals(3, t['y']['sub']['z']);
+
   def testTwoLocalreferences(self):
     t = parse_tuple("""
     base = {
