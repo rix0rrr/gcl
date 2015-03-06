@@ -10,7 +10,7 @@ import pyparsing as p
 
 from . import functions
 
-__version__ = '0.2.0'
+__version__ = '0.3.0'
 
 def do(*fns):
   def fg(args):
@@ -300,7 +300,12 @@ class Tuple(object):
     return '{%s}' % '; '.join(self._render(k) for k in self.keys())
 
 
-class LazyEnv(object):
+class AltEnv(object):
+  """Alternating env
+
+  If the key is one of the given keys, get it from the "one" environment,
+  otherwise from the other.
+  """
   def __init__(self, names, then, alt):
     self.names = names
     self.then = then
@@ -315,9 +320,9 @@ class LazyEnv(object):
 class CompositeTuple(object):
   def __init__(self, left, right):
     self.left = left
-    self.left_env = self._mk_env(left, right)
+    self.left_env = self._mk_env(left)
     self.right = right
-    self.right_env = self._mk_env(right, left)
+    self.right_env = self._mk_env(right)
 
   def __contains__(self, key):
     return key in self.right or key in self.left
@@ -328,9 +333,10 @@ class CompositeTuple(object):
   def items(self):
     return [(k, self[k]) for k in self.keys()]
 
-  def _mk_env(self, tup, alt):
-    voids = [k for k in tup.keys() if tup.is_void(k)]
-    return LazyEnv(voids, alt, tup.env())
+  def _mk_env(self, tup):
+    # Get all names that were already in that tuple from the combination,
+    # otherwise from that tuple's parent.
+    return AltEnv(tup.keys(), self, tup.env())
 
   def is_void(self, k):
     return k in self and isinstance(self.get_thunk(k), Void)
@@ -347,7 +353,7 @@ class CompositeTuple(object):
     return self.left.get_thunk(key)
 
   def __getitem__(self, key):
-    if key in self.right:
+    if key in self.right and not self.right.is_void(key):
       return self.right.get_thunk(key).eval(self.right_env)
     return self.left.get_thunk(key).eval(self.left_env)
 

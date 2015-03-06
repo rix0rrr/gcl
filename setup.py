@@ -11,7 +11,7 @@ with open(path.join(here, 'README.md'), encoding='utf-8') as f:
 #https://packaging.python.org/en/latest/distributing.html
 setup(
     name='gcl',
-    version='0.2.0',
+    version='0.3.0',
     description='Generic Configuration Language',
     long_description=long_description,
     url='https://github.com/rix0rrr/gcl',

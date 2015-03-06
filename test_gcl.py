@@ -175,6 +175,19 @@ class TestApplication(unittest.TestCase):
     """)
     self.assertEquals('hello Johnny', t['mine']['hello'])
 
+  def testIndirectTupleCompositionWithDefault(self):
+    t = parse("""
+    {
+      base = {
+        name = 'Barry';
+        hello = 'hello ' + name;
+      };
+
+      mine = base { name = 'Johnny' }
+    }
+    """)
+    self.assertEquals('hello Johnny', t['mine']['hello'])
+
   def testDereferencingFromFunctionCall1(self):
     self.assertEquals(10, parse('mk_obj(10).attr', env=self.env))
 
@@ -306,17 +319,23 @@ class TestScoping(unittest.TestCase):
 
   def testRelativeImportWithDeclaration(self):
     t = parse("""
-    { x = 1;
+    {
+      x = 1;
       y = x;
-    } {
+    }
+    {
       y;
       x = 2;
       z = y;
     }
     """)
     # At this point, what should be the value of z?
-    # To be consistent and locally analyzable, the value can only be 1.
-    self.assertEquals(1, t['z'])
+    # To be locally analyzable, the value should be 1.
+    # But to allow default values for 'declared tuples', which is
+    # also desirable, the answer is the right declaration of 'x'
+    # should override the left one, and the answer should be 2.
+
+    self.assertEquals(2, t['z'])
 
 
 class TestStandardLibrary(unittest.TestCase):
