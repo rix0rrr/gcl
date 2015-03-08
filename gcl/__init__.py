@@ -315,9 +315,6 @@ class Tuple(object):
   def get_thunk(self, k):
     return self.__items[k]
 
-  def __call__(self, that):
-    return CompositeTuple(self, that)
-
   def _render(self, key):
     if key in self:
       return '%s = %r' % (key, self.get_thunk(key))
@@ -384,41 +381,70 @@ class CompositeTuple(object):
         return x.eval(self.right_env)
     return self.left.get_thunk(key).eval(self.left_env)
 
-  def __call__(self, that):
-    return CompositeTuple(self, that)
-
   def __repr__(self):
     return '%r %r' % (self.left, self.right)
 
 
 class Application(Thunk):
   """Function application."""
-  def __init__(self, functor, args):
-    self.functor = functor
-    self.args = args
+  def __init__(self, left, right):
+    self.left = left
+    self.right = right
 
   def eval(self, env):
-    fn = self.functor.eval(env)
-    args = self.args.eval(env)
+    fn = self.left.eval(env)
+    arg = self.right.eval(env)
 
-    if isinstance(fn, Tuple):
-      # Handle tuple application. We check this here so we can give a nicer
-      # error messages, related to source as opposed to runtime values, but
-      # we do the actual application itself in the Tuple.
-      if not isinstance(args, Tuple):
-        raise EvaluationError('Tuple (%r) must be applied to exactly one other tuple (got %r)' %
-                              (self.functor, self.args))
+    # Normalize arg into a list of arguments, which it already is if the
+    # right-hand side is an ArgList, but not otherwise.
+    if not isinstance(self.right, ArgList):
+      arg = [arg]
 
-    # Any other callable type
+    # We now have evaluated and unevaluated versions of functor and arguments
+    # The evaluated ones will be used for processing, the unevaluated ones will
+    # be used for error reporting.
+
+    # Tuple application
+    if isinstance(fn, Tuple) or isinstance(fn, CompositeTuple):
+      return self.applyTuple(fn, arg)
+
+    # List application
+    if isinstance(fn, list):
+      return self.applyList(fn, arg)
+
+    # Any other callable type, just use as a Python function
     if not callable(fn):
-      raise EvaluationError('Result of %r (%r) not callable' % (self.functor, fn))
+      raise EvaluationError('Result of %r (%r) not callable' % (self.left, fn))
 
-    if isinstance(args, list):
-      return fn(*args)
-    return fn(args)
+    return fn(*arg)
 
   def __repr__(self):
-    return '%r(%r)' % (self.functor, self.args)
+    return '%r(%r)' % (self.left, self.right)
+
+  def applyTuple(self, tuple, right):
+    """Apply a tuple to something else."""
+    if len(right) != 1:
+      raise EvaluationError('Tuple (%r) can only be applied to one argument, got %r' % (self.left, self.right))
+    right = right[0]
+
+    if isinstance(right, Tuple) or isinstance(right, CompositeTuple):
+      return CompositeTuple(tuple, right)
+
+    if is_str(right):
+      return tuple[right]
+
+    raise EvaluationError("Can't apply tuple (%r) to argument (%r): string or tuple expected, got %r" % (self.left, self.right, right))
+
+  def applyList(self, lst, right):
+    """Apply a list to something else."""
+    if len(right) != 1:
+      raise EvaluationError('List (%r) can only be applied to one argument, got %r' % (self.left, self.right))
+    right = right[0]
+
+    if isinstance(right, int):
+      return lst[right]
+
+    raise EvaluationError("Can't apply list (%r) to argument (%r): integer expected, got %r" % (self.left, self.right, right))
 
 
 def mkApplications(atoms):

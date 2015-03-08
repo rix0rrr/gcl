@@ -202,6 +202,34 @@ class TestApplication(unittest.TestCase):
     self.assertEquals(2, t['y'])
     self.assertEquals(3, t['z'])
 
+  def testApplyingTupleToString(self):
+    # Applying the tuple to a string should index the tuple
+    x = parse_tuple("""
+    tuple = { x = 3 };
+    y = tuple 'x';
+    z = tuple('x')
+    """)
+    self.assertEquals(3, x['y'])
+    self.assertEquals(3, x['z'])
+
+
+  def testApplyingVariableToString(self):
+    x = parse_tuple("""
+    tuple = { x = 3 };
+    var = 'x';
+    y = tuple var;
+    """)
+    self.assertEquals(3, x['y'])
+
+  def applyIntegerToList(self):
+    x = parse_tuple("""
+    list = [ 'a', 'b', 'c' ];
+    y = list(0);
+    z = list 1;
+    """)
+    self.assertEquals('a', x['y'])
+    self.assertEquals('b', x['z'])
+
 
 class TestExpressions(unittest.TestCase):
   def testAdd(self):
