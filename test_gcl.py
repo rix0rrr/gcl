@@ -188,6 +188,14 @@ class TestApplication(unittest.TestCase):
     """)
     self.assertEquals('hello Johnny', t['mine']['hello'])
 
+  def testBaseDerefenceInRightTuple(self):
+    # We also need this to EXTEND default tuples
+    x = parse_tuple("""
+    left = { a = 3 };
+    right = left { a = base.a + 1 }
+    """)
+    self.assertEquals(4, x['right']['a'])
+
   def testDereferencingFromFunctionCall1(self):
     self.assertEquals(10, parse('mk_obj(10).attr', env=self.env))
 
@@ -292,7 +300,6 @@ class TestScoping(unittest.TestCase):
     # has an x)
     # FIXME: To implement this: composition of tuples is not a single tuple,
     # but a construct that behaves like a tuple but has 2 lookups.
-    print(t['y'])
     self.assertEquals(1, t['y']['z'])
 
   def testCompositedScopeAvailableIfDeclared(self):

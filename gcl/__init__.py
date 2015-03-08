@@ -361,7 +361,7 @@ class CompositeTuple(object):
   def _mk_env(self, tup):
     # Get all names that were already in that tuple from the combination,
     # otherwise from that tuple's parent.
-    return AltEnv(tup.keys(), self, tup.env())
+    return AltEnv(tup.keys() + ['base'], self, tup.env())
 
   def env(self):
     # Hah. We don't return anything, and it doesn't seem to matter.
@@ -375,6 +375,10 @@ class CompositeTuple(object):
     return self.left.get_thunk(key)
 
   def __getitem__(self, key):
+    if key == 'base':
+      # Return reference to base
+      return self.left
+
     if key in self.right:
       x = self.right.get_thunk(key)
       if not isinstance(x, Void):
