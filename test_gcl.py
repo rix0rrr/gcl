@@ -91,7 +91,7 @@ class TestTuple(unittest.TestCase):
     try:
       print(t['foo'])
       self.fail('Should have thrown')
-    except LookupError:
+    except gcl.EvaluationError:
       pass  # Expected
 
   def testIndirectUnbound(self):
@@ -99,7 +99,7 @@ class TestTuple(unittest.TestCase):
     try:
       print(t['bar'])
       self.fail('Should have thrown')
-    except LookupError:
+    except gcl.EvaluationError:
       pass  # Expected
 
   def testVariableInSameScope(self):
@@ -248,7 +248,7 @@ class TestScoping(unittest.TestCase):
       z = x;
     }
     """)
-    self.assertRaises(LookupError, lambda: t['y']['z'])
+    self.assertRaises(gcl.EvaluationError, lambda: t['y']['z'])
 
   def testVariableCantBeOverridenByContentsOfTuple(self):
     t = parse_tuple("""
@@ -328,7 +328,7 @@ class TestScoping(unittest.TestCase):
     try:
       t['y']['z']
       self.fail('Should have thrown')
-    except LookupError as e:
+    except gcl.EvaluationError as e:
       pass  # Expected
 
   def testRelativeImportWithDeclaration(self):
@@ -350,6 +350,18 @@ class TestScoping(unittest.TestCase):
     # should override the left one, and the answer should be 2.
 
     self.assertEquals(2, t['z'])
+
+  def testInheriting(self):
+    # We need inheriting because we can't write
+    #   z = { x = x }
+    # (That would lead to infinite recursion)
+    t = parse_tuple("""
+    x = 1;
+    y = 2;
+    z = { inherit x y; w = 1 }
+    """)
+    self.assertEquals(1, t['z']['x'])
+    self.assertEquals(2, t['z']['y'])
 
 
 class TestStandardLibrary(unittest.TestCase):

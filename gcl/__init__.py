@@ -12,6 +12,19 @@ from . import functions
 
 __version__ = '0.3.0'
 
+
+class GCLError(RuntimeError):
+  pass
+
+
+class ParseError(GCLError):
+  pass
+
+
+class EvaluationError(GCLError):
+  pass
+
+
 def do(*fns):
   def fg(args):
     for fn in fns:
@@ -62,8 +75,8 @@ def loader_with_search_path(search_path):
           break
 
     if not path.isfile(target_path):
-      raise IOError('No such file: %r, searched %s' %
-                    (current_file, ':'.join([base] + search_path)))
+      raise EvaluationError('No such file: %r, searched %s' %
+                            (current_file, ':'.join([base] + search_path)))
 
     return load(target_path)
   return loader
@@ -95,7 +108,7 @@ the_context = ParseContext()
 
 class EmptyEnvironment(object):
   def __getitem__(self, key):
-    raise LookupError('Unbound variable: %r' % key)
+    raise EvaluationError('Unbound variable: %r' % key)
 
   def __contains__(self, key):
     return False
@@ -129,7 +142,7 @@ class Environment(object):
 
 class Thunk(object):
   def eval(self, env):
-    raise NotImplementedError('Whoops')
+    raise EvaluationError('Whoops')
 
 
 class Null(Thunk):
@@ -150,11 +163,25 @@ class Void(Thunk):
     pass
 
   def eval(self, env):
-    raise ValueError('Unbound value')
+    raise EvaluationError('Unbound value')
 
   def __repr__(self):
     return '<unbound>'
 
+
+class Inherit(Thunk):
+  def __init__(self):
+    pass
+
+  def eval(self, env):
+    raise EvaluationError("Shouldn't evaluate Inherit nodes")
+
+  def __repr__(self):
+    return 'inherit'
+
+
+def mkInherits(tokens):
+  return [(t, Inherit()) for t in list(tokens)]
 
 class Constant(Thunk):
   """A GCL constant expression."""
@@ -224,6 +251,7 @@ class UnboundTuple(Thunk):
   requested.
   """
   def __init__(self, kv_pairs):
+    print kv_pairs
     self.items = dict(kv_pairs)
 
   def eval(self, env):
@@ -260,6 +288,10 @@ class Tuple(object):
     try:
       x = self.get_thunk(key)
 
+      # Don't evaluate in this env but parent env
+      if isinstance(x, Inherit):
+        return self.__parent_env[key]
+
       # Check if this is a Thunk that needs to be lazily evaluated before we
       # return it.
       if isinstance(x, Thunk):
@@ -267,7 +299,7 @@ class Tuple(object):
 
       return x
     except Exception as e:
-      raise LookupError("Can't get value for %r: %s" % (key, e))
+      raise EvaluationError("Can't get value for %r: %s" % (key, e))
 
   def __contains__(self, key):
     return key in self.__items
@@ -280,9 +312,6 @@ class Tuple(object):
 
   def items(self):
     return [(k, self[k]) for k in self.keys()]
-
-  def is_void(self, k):
-    return k in self and isinstance(self.get_thunk(k), Void)
 
   def get_thunk(self, k):
     return self.__items[k]
@@ -338,9 +367,6 @@ class CompositeTuple(object):
     # otherwise from that tuple's parent.
     return AltEnv(tup.keys(), self, tup.env())
 
-  def is_void(self, k):
-    return k in self and isinstance(self.get_thunk(k), Void)
-
   def env(self):
     # Hah. We don't return anything, and it doesn't seem to matter.
     pass
@@ -353,8 +379,10 @@ class CompositeTuple(object):
     return self.left.get_thunk(key)
 
   def __getitem__(self, key):
-    if key in self.right and not self.right.is_void(key):
-      return self.right.get_thunk(key).eval(self.right_env)
+    if key in self.right:
+      x = self.right.get_thunk(key)
+      if not isinstance(x, Void):
+        return x.eval(self.right_env)
     return self.left.get_thunk(key).eval(self.left_env)
 
   def __call__(self, that):
@@ -379,12 +407,12 @@ class Application(Thunk):
       # error messages, related to source as opposed to runtime values, but
       # we do the actual application itself in the Tuple.
       if not isinstance(args, Tuple):
-        raise ValueError('Tuple (%r) must be applied to exactly one other tuple (got %r)' %
-                         (self.functor, self.args))
+        raise EvaluationError('Tuple (%r) must be applied to exactly one other tuple (got %r)' %
+                              (self.functor, self.args))
 
     # Any other callable type
     if not callable(fn):
-      raise ValueError('Result of %r (%r) not callable' % (self.functor, fn))
+      raise EvaluationError('Result of %r (%r) not callable' % (self.functor, fn))
 
     if isinstance(args, list):
       return fn(*args)
@@ -418,7 +446,7 @@ class UnOp(Thunk):
     right = self.right.eval(env)
     fn = functions.unary_operators.get(self.op, None)
     if fn is None:
-      raise LookupError('Unknown unary operator: %s' % self.op)
+      raise EvaluationError('Unknown unary operator: %s' % self.op)
     return fn(right)
 
   def __repr__(self):
@@ -441,7 +469,7 @@ class BinOp(Thunk):
 
     fn = functions.all_binary_operators.get(self.op, None)
     if fn is None:
-      raise LookupError('Unknown operator: %s' % self.op)
+      raise EvaluationError('Unknown operator: %s' % self.op)
 
     return fn(left, right)
 
@@ -502,14 +530,13 @@ class Include(Thunk):
   def eval(self, env):
     file_ref = self.file_ref.eval(env)
     if not is_str(file_ref):
-      raise ValueError('Included argument (%r) must be a string, got %r' %
-                       (self.file_ref, file_ref))
+      raise EvaluationError('Included argument (%r) must be a string, got %r' %
+                            (self.file_ref, file_ref))
 
     return self.loader(self.current_file, file_ref)
 
   def __repr__(self):
     return 'include %r' % self.file_ref
-
 
 
 #----------------------------------------------------------------------
@@ -538,7 +565,7 @@ def bracketedList(l, r, sep, expr, what):
   return (sym(l) + listMembers(sep, expr, what) + sym(r)).setParseAction(head)
 
 
-keywords = ['and', 'or', 'not', 'if', 'then', 'else', 'include']
+keywords = ['and', 'or', 'not', 'if', 'then', 'else', 'include', 'inherit']
 
 expression = p.Forward()
 
@@ -558,7 +585,9 @@ null = p.Keyword('null').setParseAction(Null)
 list_ = bracketedList('[', ']', ',', expression, List)
 
 # Tuple
-tuple_member = ((identifier + '=' + expression).setParseAction(lambda x: (x[0], x[2]))
+inherit = (kw('inherit') + p.ZeroOrMore(identifier)).setParseAction(mkInherits)
+tuple_member = (inherit
+               | (identifier + '=' + expression).setParseAction(lambda x: (x[0], x[2]))
                | (identifier + ~p.FollowedBy('=')).setParseAction(lambda x: (x[0], Void())))
 tuple_members = listMembers(';', tuple_member, UnboundTuple)
 tuple = bracketedList('{', '}', ';', tuple_member, UnboundTuple)
@@ -636,9 +665,13 @@ default_env = Environment(functions.builtin_functions)
 
 def reads(s, filename=None, loader=None, implicit_tuple=True):
   """Load but don't evaluate a GCL expression from a string."""
-  the_context.filename = filename or '<string>'
-  the_context.loader = loader or default_loader
-  return (start_tuple if implicit_tuple else start).parseString(s, parseAll=True)[0]
+  try:
+    the_context.filename = filename or '<input>'
+    the_context.loader = loader or default_loader
+    return (start_tuple if implicit_tuple else start).parseString(s, parseAll=True)[0]
+  except p.ParseException as e:
+    msg = '%s:%d: %s\n%s\n%s^-- here' % (the_context.filename, e.lineno, e.msg, e.line, ' ' * (e.col - 1))
+    raise ParseError(msg)
 
 
 def read(filename, loader=None, implicit_tuple=True):
