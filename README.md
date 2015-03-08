@@ -127,3 +127,8 @@ Requirements
 ------------
 
 * Uses `pyparsing`.
+
+Extra
+-----
+
+* Vim syntax definitions available: https://github.com/rix0rrr/vim-gcl
