@@ -251,7 +251,6 @@ class UnboundTuple(Thunk):
   requested.
   """
   def __init__(self, kv_pairs):
-    print kv_pairs
     self.items = dict(kv_pairs)
 
   def eval(self, env):
