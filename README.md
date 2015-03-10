@@ -5,6 +5,21 @@ GCL is an abstract configuration language that can be dropped into any Python
 project. It supports dictionaries with name-value pairs, all the basic types
 you'd expect, lists, includes, and methods for abstraction.
 
+Vision
+------
+
+The goal for GCL is to be a declarative configuration/modeling language, with
+lots of expressive power, intended to make configs DRY. Behavior is not part of
+the goal of the language; behavior and semantics are added by scripts that
+interpret the GCL model.
+
+Scoping rules have been designed to make single files easier to analyze and to
+predict their behavior (for example, scoping is not dynamic but all external
+imports have been declared). This analyzability is good for larger projects,
+but this necesitates some syntactical overhead that may not make the project
+worthwhile for small configs split over multiple files. Alternatively, don't
+split up into multiple files :).
+
 Why not use JSON?
 -----------------
 
@@ -79,7 +94,8 @@ Periods are used to dereference tuples.
 
 External files can be included with the built-in `include()` function. The
 result of that expression is the result of parsing that file (which will be
-parsed as a tuple using the default environment).
+parsed as a tuple using the default environment). Relative filenames are
+resolved with respect to the _including_ file.
 
 
 Tuple composition
@@ -122,6 +138,63 @@ If `message` is evaluated, but `greeting` happens to not be filled in, an
 error will be thrown. To force eager evaluation (to try and catch typos), use
 `eager()` on a tuple.
 
+Scoping
+-------
+
+References in GCL are lexically scoped, where each tuple forms its own
+subscope. This means that something like this:
+
+    x = 3;
+    y = {
+        x = x;
+    };
+
+Wouldn't work, because `x = x` would lead to infinite recursion. Instead,
+to bring variables from the outer scope into the inner scope (on the current
+tuple), use the `inherit` keyword:
+
+    x = 3;
+    y = {
+        inherit x;
+    }
+
+This will be especially useful if you're going to compose with tuples from a
+different file.
+
+In a tuple composition, it's possible to refer to variables in the left side of
+the composition using `base.`. This is useful if you want to modify subtuples
+(instead of overwriting them, as would be the default):
+
+    parent = {
+        attributes = {
+            food = 'fast';
+            speed = 'slow';
+        }
+    };
+    final = parent {
+        attributes = base.attributes {
+            speed = 'fast';
+        }
+    };
+
+Competition
+-----------
+
+* JSON: already mentioned above. Not so nice to write, and because of lack of
+  expressive power encourages copy/paste jobs all over the place.
+* [https://github.com/toml-lang/toml](TOML): simple and obvious. Doesn't seem
+  to allow abstraction and reuse though.
+* [https://github.com/vstakhov/libucl](UCL): looks and feels a lot like GCL,
+  but the difference with GCL is that in typing `section { }`, in UCL the
+  _interpreter_ gives meaning to the identifier `section`, while in GCL the
+  model itself gives meaning to `section`. Also, the macro language doesn't
+  look so nice to me.
+* [http://nixos.org/nix/manual/](Nix language): subconsciously, GCL has been
+  modeled a lot after Nix, with its laziness and syntax. Nix' purpose is
+  similar (declaring a potentially huge model that's lazily evaluated), though
+  its application area is different. Nix uses explicit argument declaration and
+  makes tuples nonrecursive, whereas in GCL everything in scope can be
+  referenced.
 
 Requirements
 ------------
