@@ -22,6 +22,8 @@ setup(
     author_email='rix0rrr@gmail.com',
     license='MIT',
 
+    scripts = ['bin/gcl-print'],
+
     # See https://pypi.python.org/pypi?%3Aaction=list_classifiers
     classifiers=[
         # How mature is this project? Common values are

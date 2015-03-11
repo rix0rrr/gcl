@@ -1,0 +1,81 @@
+#!/usr/bin/env python
+"""Script to print a GCL model."""
+
+import argparse
+import sys
+
+import gcl
+from gcl import util
+
+parser = argparse.ArgumentParser(description='Print a GCL model file.')
+parser.add_argument('files', metavar='FILES', type=str, nargs='*',
+                    help='Files to print')
+
+args = parser.parse_args()
+
+
+class Color(object):
+  yellow = '\033[93m'
+  endc = '\033[0m'
+  red = '\033[91m'
+  green = '\033[92m'
+  cyan = '\033[96m'
+
+  @classmethod
+  def noColorize(cls, text, color):
+    return text
+
+  @classmethod
+  def doColorize(cls, text, color):
+    return '%s%s%s' % (getattr(cls, color), text, cls.endc)
+
+  if sys.stdout.isatty():
+    colorize = doColorize
+  else:
+    colorize = noColorize
+
+
+class PrintWalker(util.ExpressionWalker):
+  def _printIndented(self, path, key):
+    indent = Color.colorize(('|  ' * (len(path))) + '+- ', 'cyan') + key
+    sys.stdout.write('%-40s' % indent)
+
+  def enterTuple(self, tuple, path):
+    if path:
+      self._printIndented(path[:-1], path[-1])
+      print('')
+
+  def leaveTuple(self, tuple, path):
+    pass
+
+  def visitError(self, key, ex, path):
+    self._printIndented(path, key)
+    print(Color.colorize('=> ', 'cyan') +
+          Color.colorize('<%s>' % ex, 'red'))
+
+  def visitScalar(self, key, value, path):
+    self._printIndented(path, key)
+    print(Color.colorize('=> ', 'cyan') +
+          '%r' % value)
+
+
+def print_model(model):
+  util.walk(model, PrintWalker())
+
+
+if args.files:
+  for filename in args.files:
+    try:
+      model = gcl.load(filename)
+    except gcl.ParseError as e:
+      print e
+      break
+    else:
+      print_model(model)
+else:
+  try:
+    model = gcl.loads(sys.stdin.read(), filename='<stdin>')
+  except gcl.ParseError as e:
+    print e
+  else:
+    print_model(model)

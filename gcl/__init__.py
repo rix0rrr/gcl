@@ -342,7 +342,7 @@ class AltEnv(object):
     return self.alt[key]
 
 
-class CompositeTuple(object):
+class CompositeTuple(Tuple):
   def __init__(self, left, right):
     self.left = left
     self.left_env = self._mk_env(left)
