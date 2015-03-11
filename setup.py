@@ -4,14 +4,17 @@ from os import path
 
 here = path.abspath(path.dirname(__file__))
 
-# Get the long description from the relevant file
-with open(path.join(here, 'README.md'), encoding='utf-8') as f:
-    long_description = f.read()
+# Get the long description from the relevant file (only on devhost)
+try:
+  with open(path.join(here, 'README.md'), encoding='utf-8') as f:
+      long_description = f.read()
+except IOError:
+  long_description = ''
 
 #https://packaging.python.org/en/latest/distributing.html
 setup(
     name='gcl',
-    version='0.4.0',
+    version='0.4.1',
     description='Generic Configuration Language',
     long_description=long_description,
     url='https://github.com/rix0rrr/gcl',
