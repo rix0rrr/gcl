@@ -361,7 +361,7 @@ class CompositeTuple(object):
   def _mk_env(self, tup):
     # Get all names that were already in that tuple from the combination,
     # otherwise from that tuple's parent.
-    return AltEnv(tup.keys() + ['base'], self, tup.env())
+    return AltEnv(list(tup.keys()) + ['base'], self, tup.env())
 
   def env(self):
     # Hah. We don't return anything, and it doesn't seem to matter.
