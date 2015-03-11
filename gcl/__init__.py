@@ -298,7 +298,7 @@ class Tuple(object):
 
       return x
     except Exception as e:
-      raise EvaluationError("Can't get value for %r: %s" % (key, e))
+      raise EvaluationError("While evaluating %r: %s" % (key, e))
 
   def __contains__(self, key):
     return key in self.__items
