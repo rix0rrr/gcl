@@ -68,7 +68,7 @@ if args.files:
     try:
       model = gcl.load(filename)
     except gcl.ParseError as e:
-      print e
+      print(e)
       break
     else:
       print_model(model)
@@ -76,6 +76,6 @@ else:
   try:
     model = gcl.loads(sys.stdin.read(), filename='<stdin>')
   except gcl.ParseError as e:
-    print e
+    print(e)
   else:
     print_model(model)
