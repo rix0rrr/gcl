@@ -1,1 +1,2 @@
-- Nicer parsing errors, indicating file, location and example
+- Nicer evaluation errors, indicating file and location of token erroring
+- Caching for speeds (includes)
