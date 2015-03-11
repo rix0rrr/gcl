@@ -374,6 +374,11 @@ class CompositeTuple(object):
       return self.right.get_thunk(key)
     return self.left.get_thunk(key)
 
+  def get(self, key, default=None):
+    if key in self:
+      return self[key]
+    return default
+
   def __getitem__(self, key):
     if key == 'base':
       # Return reference to base
