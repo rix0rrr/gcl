@@ -58,7 +58,7 @@ def walk(tuple, walker, path=None):
 
 
 def _digest(value, digest):
-  if isinstance(value, Tuple):
+  if isinstance(value, gcl.Tuple):
     digest.update('T')
     for k in value.keys():
       v = get_or_error(value, k)
@@ -78,4 +78,4 @@ def fingerprint(value):
   """Return a hash value that uniquely identifies the GCL value."""
   h = hashlib.sha256()
   _digest(value, h)
-  return h.digest.encode('hex')
+  return h.digest().encode('hex')

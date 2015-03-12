@@ -8,7 +8,7 @@ import gcl
 from gcl import util
 
 parser = argparse.ArgumentParser(description='Print a GCL model file.')
-parser.add_argument('files', metavar='FILES', type=str, nargs='*',
+parser.add_argument('files', metavar='FILE', type=str, nargs='*',
                     help='Files to print')
 
 args = parser.parse_args()
@@ -60,6 +60,7 @@ class PrintWalker(util.ExpressionWalker):
 
 
 def print_model(model):
+  print(util.fingerprint(model))
   util.walk(model, PrintWalker())
 
 
