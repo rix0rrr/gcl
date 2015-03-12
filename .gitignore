@@ -4,3 +4,5 @@ dist
 __*__
 *.egg-info
 publish
+.DS_Store
+*.txt
