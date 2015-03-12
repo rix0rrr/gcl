@@ -66,17 +66,17 @@ def loader_with_search_path(search_path):
   """
   def loader(current_file, rel_path):
     """Default file-based loader."""
-    base = path.dirname(current_file)
-    target_path = find_relative(base, rel_path)
-    if not path.isfile(target_path):
-      for search in search_path:
-        target_path = path.normpath(path.join(search, rel_path))
-        if path.isfile(target_path):
-          break
+    search_all = [path.dirname(current_file)] + search_path
 
-    if not path.isfile(target_path):
+    target_path = None
+    for search in search_all:
+      if path.isfile(path.join(search, rel_path)):
+        target_path = path.normpath(path.join(search, rel_path))
+        break
+
+    if not target_path:
       raise EvaluationError('No such file: %r, searched %s' %
-                            (current_file, ':'.join([base] + search_path)))
+                            (current_file, ':'.join(search_all)))
 
     return load(target_path)
   return loader
@@ -706,7 +706,7 @@ def reads(s, filename=None, loader=None, implicit_tuple=True):
     the_context.filename = filename or '<input>'
     the_context.loader = loader or default_loader
     return (start_tuple if implicit_tuple else start).parseString(s, parseAll=True)[0]
-  except p.ParseException as e:
+  except (p.ParseException, p.ParseSyntaxException) as e:
     msg = '%s:%d: %s\n%s\n%s^-- here' % (the_context.filename, e.lineno, e.msg, e.line, ' ' * (e.col - 1))
     raise ParseError(msg)
 

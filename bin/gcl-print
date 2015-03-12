@@ -38,7 +38,7 @@ class Color(object):
 class PrintWalker(util.ExpressionWalker):
   def _printIndented(self, path, key):
     indent = Color.colorize(('|  ' * (len(path))) + '+- ', 'cyan') + key
-    sys.stdout.write('%-40s' % indent)
+    sys.stdout.write('%-50s' % indent)
 
   def enterTuple(self, tuple, path):
     if path:

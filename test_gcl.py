@@ -56,6 +56,14 @@ class TestBasics(unittest.TestCase):
   def testImplicitTupleEmpty(self):
     self.assertEquals([], parse('', implicit_tuple=True).items())
 
+  def testIdentifierWithDash(self):
+    x = parse('hello-world', env={'hello-world': 1})
+    self.assertEquals(1, x)
+
+  def testIdentifierWithColon(self):
+    x = parse('hello:world', env={'hello:world': 1})
+    self.assertEquals(1, x)
+
 
 class TestList(unittest.TestCase):
   def testEmptyList(self):
@@ -201,6 +209,17 @@ class TestApplication(unittest.TestCase):
 
   def testDereferencingFromFunctionCall2(self):
     self.assertEquals(10, parse('(mk_obj 10).attr', env=self.env))
+
+  def testTupleApplicationAndDerefPrecedence(self):
+    x = parse_tuple("""
+    lib = {
+      parent = { x = 1 }
+    };
+
+    composed = lib.parent { y = 2; }
+    """)
+    self.assertEquals(1, x['composed']['x'])
+    self.assertEquals(2, x['composed']['y'])
 
   def testTripleApplication(self):
     t = parse("""
@@ -397,6 +416,21 @@ class TestScoping(unittest.TestCase):
     """)
     self.assertEquals(1, t['z']['x'])
     self.assertEquals(2, t['z']['y'])
+
+  def testInheritingAndCompositing(self):
+    x = parse_tuple("""
+    parent = {
+      foo;
+      child = {
+        inherit foo;
+      }
+    };
+
+    composed = parent {
+      foo = 1;
+    };
+    """)
+    self.assertEquals(1, x['composed']['child']['foo']);
 
 
 class TestStandardLibrary(unittest.TestCase):
