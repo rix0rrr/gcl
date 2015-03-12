@@ -10,7 +10,7 @@ import pyparsing as p
 
 from . import functions
 
-__version__ = '0.4.3'
+__version__ = '0.4.4'
 
 
 class GCLError(RuntimeError):
@@ -570,7 +570,7 @@ class Include(Thunk):
     return self.loader(self.current_file, file_ref)
 
   def __repr__(self):
-    return 'include %r' % self.file_ref
+    return 'include(%r)' % self.file_ref
 
 
 #----------------------------------------------------------------------
@@ -641,7 +641,10 @@ if_then_else = (kw('if') + expression +
                 kw('then') + expression +
                 kw('else') + expression).setParseAction(doapply(Condition))
 
-include = (kw('include') + expression).setParseAction(doapply(Include))
+# We don't allow space-application here
+# Now our grammar is becoming very dirty and hackish
+deref = p.Forward()
+include = (kw('include') + deref).setParseAction(doapply(Include))
 
 atom = (floating
         | integer
@@ -664,7 +667,7 @@ atom = (floating
 applic1 = (atom + p.ZeroOrMore(arg_list)).setParseAction(mkApplications)
 
 # Dereferencing of an expression (obj.bar)
-deref = (applic1 + p.ZeroOrMore(p.Literal('.').suppress() + identifier)).setParseAction(mkDerefs)
+deref << (applic1 + p.ZeroOrMore(p.Literal('.').suppress() + identifier)).setParseAction(mkDerefs)
 
 # Juxtaposition function application (fn arg), must be 1-arg every time
 applic2 = (deref + p.ZeroOrMore(deref)).setParseAction(mkApplications)

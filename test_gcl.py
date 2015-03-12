@@ -423,3 +423,8 @@ class TestIncludes(unittest.TestCase):
   def testAbsoluteInclude(self):
     t = self.parse('/home/me/file', 'inc = include "/other_file"')
     self.assertEquals('/other_file', t['inc']['loaded_from'])
+
+  def testIncludeWithApplyPrecedence(self):
+    x = self.parse('/home/me/file', 'inc = include "other_file.gcl" { foo = 3 };')
+    print x
+    self.assertEquals(3, x['inc']['foo']);
