@@ -60,7 +60,6 @@ class PrintWalker(util.ExpressionWalker):
 
 
 def print_model(model):
-  print(util.fingerprint(model))
   util.walk(model, PrintWalker())
 
 

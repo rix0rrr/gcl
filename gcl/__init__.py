@@ -59,6 +59,8 @@ def find_relative(current_dir, rel_path):
     return path.normpath(path.join(current_dir, rel_path))
 
 
+loader_cache = {}
+
 def loader_with_search_path(search_path):
   """Return a searching loader function.
 
@@ -76,9 +78,15 @@ def loader_with_search_path(search_path):
 
     if not target_path:
       raise EvaluationError('No such file: %r, searched %s' %
-                            (current_file, ':'.join(search_all)))
+                            (rel_path, ':'.join(search_all)))
 
-    return load(target_path)
+
+    # Target_path looks "nice", which is good for error messages, but we want
+    # to cache on the absolute path.
+    full_path = path.abspath(target_path)
+    if full_path not in loader_cache:
+      loader_cache[full_path] = load(target_path)
+    return loader_cache[full_path]
   return loader
 
 # Default loader doesn't have any search path
@@ -586,7 +594,7 @@ def kw(kw):
 
 
 def listMembers(sep, expr, what):
-  return p.Optional(p.delimitedList(expr, sep) +
+  return p.Optional(p.delimitedList(expr, sep) -
                     p.Optional(sep).suppress()).setParseAction(
                         lambda ts: what(list(ts)))
 
@@ -596,7 +604,7 @@ def bracketedList(l, r, sep, expr, what):
 
   Empty list is possible, as is a trailing separator.
   """
-  return (sym(l) + listMembers(sep, expr, what) + sym(r)).setParseAction(head)
+  return (sym(l) - listMembers(sep, expr, what) - sym(r)).setParseAction(head)
 
 
 keywords = ['and', 'or', 'not', 'if', 'then', 'else', 'include', 'inherit']
@@ -605,7 +613,7 @@ expression = p.Forward()
 
 comment = '#' + p.restOfLine
 
-identifier = p.Word(p.alphanums + '_')
+identifier = p.Word(p.alphanums + '_-:')
 
 # Contants
 integer = p.Combine(p.Word(p.nums)).setParseAction(do(head, int, Constant))
@@ -619,10 +627,11 @@ null = p.Keyword('null').setParseAction(Null)
 list_ = bracketedList('[', ']', ',', expression, List)
 
 # Tuple
-inherit = (kw('inherit') + p.ZeroOrMore(identifier)).setParseAction(mkInherits)
+inherit = (kw('inherit') - p.ZeroOrMore(identifier)).setParseAction(mkInherits)
 tuple_member = (inherit
-               | (identifier + '=' + expression).setParseAction(lambda x: (x[0], x[2]))
-               | (identifier + ~p.FollowedBy('=')).setParseAction(lambda x: (x[0], Void())))
+               | (identifier + ~p.FollowedBy('=')).setParseAction(lambda x: (x[0], Void()))
+               | (identifier - '=' - expression).setParseAction(lambda x: (x[0], x[2]))
+               )
 tuple_members = listMembers(';', tuple_member, UnboundTuple)
 tuple = bracketedList('{', '}', ';', tuple_member, UnboundTuple)
 
@@ -633,18 +642,18 @@ variable = ~p.oneOf(' '.join(keywords)) + identifier.copy().setParseAction(mkVar
 # don't call it that because we use that term for something else already :)
 arg_list = bracketedList('(', ')', ',', expression, ArgList)
 
-parenthesized_expr = (sym('(') + expression + ')').setParseAction(head)
+parenthesized_expr = (sym('(') - expression - ')').setParseAction(head)
 
-unary_op = (p.oneOf(' '.join(functions.unary_operators.keys())) + expression).setParseAction(mkUnOp)
+unary_op = (p.oneOf(' '.join(functions.unary_operators.keys())) - expression).setParseAction(mkUnOp)
 
-if_then_else = (kw('if') + expression +
-                kw('then') + expression +
-                kw('else') + expression).setParseAction(doapply(Condition))
+if_then_else = (kw('if') - expression -
+                kw('then') - expression -
+                kw('else') - expression).setParseAction(doapply(Condition))
 
 # We don't allow space-application here
 # Now our grammar is becoming very dirty and hackish
 deref = p.Forward()
-include = (kw('include') + deref).setParseAction(doapply(Include))
+include = (kw('include') - deref).setParseAction(doapply(Include))
 
 atom = (floating
         | integer
