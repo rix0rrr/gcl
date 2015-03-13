@@ -178,11 +178,16 @@ class Void(Thunk):
 
 
 class Inherit(Thunk):
-  def __init__(self):
-    pass
+  """Inherit Thunks can be either bound or unbound."""
+
+  def __init__(self, name=None, env=None):
+    self.name = name
+    self.env = env
 
   def eval(self, env):
-    raise EvaluationError("Shouldn't evaluate Inherit nodes")
+    if not self.env:
+      raise EvaluationError("Shouldn't evaluate Inherit nodes")
+    return self.env[self.name]
 
   def __repr__(self):
     return 'inherit'
@@ -295,10 +300,6 @@ class Tuple(object):
     try:
       x = self.get_thunk(key)
 
-      # Don't evaluate in this env but parent env
-      if isinstance(x, Inherit):
-        return self.__parent_env[key]
-
       # Check if this is a Thunk that needs to be lazily evaluated before we
       # return it.
       if isinstance(x, Thunk):
@@ -321,7 +322,12 @@ class Tuple(object):
     return [(k, self[k]) for k in self.keys()]
 
   def get_thunk(self, k):
-    return self.__items[k]
+    x = self.__items[k]
+    # Don't evaluate in this env but parent env
+    if isinstance(x, Inherit):
+      return Inherit(k, self.__parent_env)
+    return x
+
 
   def _render(self, key):
     if key in self:

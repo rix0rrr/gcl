@@ -417,20 +417,31 @@ class TestScoping(unittest.TestCase):
     self.assertEquals(1, t['z']['x'])
     self.assertEquals(2, t['z']['y'])
 
-  def testInheritingAndCompositing(self):
+  def testInheritingAndCompositingLeft(self):
     x = parse_tuple("""
     parent = {
-      foo;
+      foo = 1;
       child = {
         inherit foo;
       }
     };
 
-    composed = parent {
-      foo = 1;
-    };
+    composed = parent { };
     """)
     self.assertEquals(1, x['composed']['child']['foo']);
+
+  def testInheritingAndCompositingRight(self):
+    x = parse_tuple("""
+    parent = {
+      foo;
+      added = foo + 1;
+    };
+
+    foo = 1;
+
+    composed = parent { inherit foo };
+    """)
+    self.assertEquals(1, x['composed']['foo']);
 
 
 class TestStandardLibrary(unittest.TestCase):
