@@ -2,6 +2,7 @@
 
 import gcl
 import hashlib
+import sys
 
 class ExpressionWalker(object):
   """Defines the interface for walk()."""
@@ -17,10 +18,10 @@ class ExpressionWalker(object):
   def leaveTuple(self, tuple, path):
     pass
 
-  def visitError(self, key, ex, path):
+  def visitError(self, key_path, ex):
     pass
 
-  def visitScalar(self, key, value, path):
+  def visitScalar(self, key_path, value):
     pass
 
 
@@ -58,6 +59,15 @@ def walk(tuple, walker, path=None):
   walker.leaveTuple(tuple, path)
 
 
+def select(tuple, selector):
+  if hasattr(selector, 'split'):
+    selector = selector.split('.')
+
+  for sel in selector:
+    tuple = tuple[sel]
+  return tuple
+
+
 def _digest(value, digest):
   if isinstance(value, gcl.Tuple):
     digest.update('T')
@@ -75,8 +85,88 @@ def _digest(value, digest):
     # Otherwise add the string representation of value to the digest.
     digest.update('S' + str(value))
 
+
 def fingerprint(value):
   """Return a hash value that uniquely identifies the GCL value."""
   h = hashlib.sha256()
   _digest(value, h)
   return h.digest().encode('hex')
+
+
+class Color(object):
+  yellow = '\033[93m'
+  endc = '\033[0m'
+  red = '\033[91m'
+  green = '\033[92m'
+  cyan = '\033[96m'
+
+  @classmethod
+  def noColorize(cls, text, color):
+    return text
+
+  @classmethod
+  def doColorize(cls, text, color):
+    if not color:
+      return text
+    return '%s%s%s' % (getattr(cls, color), text, cls.endc)
+
+  if sys.stdout.isatty():
+    colorize = doColorize
+  else:
+    colorize = noColorize
+
+
+class Cell(object):
+  def __init__(self, text='', color=''):
+    self.text = ''
+    self.len = 0
+    if text:
+      self.write(text, color)
+
+  def write(self, text, color=''):
+    self.text += Color.colorize(text, color)
+    self.len += len(text)
+    return self
+
+  def copy(self):
+    import copy
+    return copy.copy(self)
+
+
+class ConsoleTable(object):
+  """Class to print a table of varying column sizes."""
+  def __init__(self):
+    # Cells are lists with a text and a width
+    self.table = [[]]
+
+  def add(self, cell):
+    self.table[-1].append(cell)
+
+  def addAll(self, cells):
+    self.table[-1].extend(cells)
+
+  def feedLine(self):
+    self.table.append([])
+
+  def currentRowCopy(self):
+    return [c.copy() for c in self.table[-1]]
+
+  def _findColumnSizes(self):
+    sizes = []
+    for row in self.table:
+      while len(sizes) < len(row):
+        sizes.append(0)
+      for i, cell in enumerate(row[:-1]):
+        sizes[i] = max(sizes[i], cell.len)
+    return sizes
+
+  def printOut(self, fobj):
+    sizes = self._findColumnSizes()
+    for row in self.table:
+      for i, cell in enumerate(row):
+        if i != 0:
+          fobj.write(' ')
+        fobj.write(cell.text)
+        if i < len(row) - 1:
+          fobj.write(' ' * (sizes[i] - cell.len))
+      fobj.write('\n')

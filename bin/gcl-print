@@ -18,82 +18,6 @@ parser.add_argument('-l', '--lowercase', dest='lowercase', action='store_true', 
 args = parser.parse_args()
 
 
-class Color(object):
-  yellow = '\033[93m'
-  endc = '\033[0m'
-  red = '\033[91m'
-  green = '\033[92m'
-  cyan = '\033[96m'
-
-  @classmethod
-  def noColorize(cls, text, color):
-    return text
-
-  @classmethod
-  def doColorize(cls, text, color):
-    if not color:
-      return text
-    return '%s%s%s' % (getattr(cls, color), text, cls.endc)
-
-  if sys.stdout.isatty():
-    colorize = doColorize
-  else:
-    colorize = noColorize
-
-
-class Cell(object):
-  def __init__(self, text='', len=0):
-    self.text = text
-    self.len = len
-
-  def write(self, text, color=''):
-    self.text += Color.colorize(text, color)
-    self.len += len(text)
-    return self
-
-  def copy(self):
-    return Cell(self.text, self.len)
-
-
-class ConsoleTable(object):
-  """Class to print a table of varying column sizes."""
-  def __init__(self):
-    # Cells are lists with a text and a width
-    self.table = [[]]
-
-  def add(self, cell):
-    self.table[-1].append(cell)
-
-  def addAll(self, cells):
-    self.table[-1].extend(cells)
-
-  def feedLine(self):
-    self.table.append([])
-
-  def currentRowCopy(self):
-    return [c.copy() for c in self.table[-1]]
-
-  def _findColumnSizes(self):
-    sizes = []
-    for row in self.table:
-      while len(sizes) < len(row):
-        sizes.append(0)
-      for i, cell in enumerate(row[:-1]):
-        sizes[i] = max(sizes[i], cell.len)
-    return sizes
-
-  def printOut(self, fobj):
-    sizes = self._findColumnSizes()
-    for row in self.table:
-      for i, cell in enumerate(row):
-        if i != 0:
-          fobj.write(' ')
-        fobj.write(cell.text)
-        if i < len(row) - 1:
-          fobj.write(' ' * (sizes[i] - cell.len))
-      fobj.write('\n')
-
-
 def printableKey(k):
   return not args.lowercase or ('a' <= k[0] <= 'z')
 
@@ -114,7 +38,7 @@ class PrintWalker(util.ExpressionWalker):
       self.do_prefix = False
 
   def _outline(self, path):
-    return Cell().write('|  ' * len(path), 'cyan')
+    return util.Cell('|  ' * len(path), 'cyan')
 
   def _printBullet(self, path):
     self._maybePrintPrefix()
@@ -123,11 +47,11 @@ class PrintWalker(util.ExpressionWalker):
                        .write(path[-1]))
 
   def _printArrow(self):
-    self.table.add(Cell().write('=>', 'cyan'))
+    self.table.add(util.Cell('=>', 'cyan'))
 
   def _printRecordSeparator(self):
     self._maybePrintPrefix()
-    self.table.add(Cell().write('----------', 'yellow'))
+    self.table.add(util.Cell('----------', 'yellow'))
     self._newLine()
 
   def enterTuple(self, tuple, path):
@@ -145,15 +69,15 @@ class PrintWalker(util.ExpressionWalker):
   def visitError(self, key_path, ex):
     self._printBullet(key_path)
     self._printArrow()
-    self.table.add(Cell().write('<%s>' % ex, 'red'))
+    self.table.add(util.Cell('<%s>' % ex, 'red'))
     self._newLine()
 
   def _printList(self, key_path, xs):
     if not len(xs):
-      self.table.add(Cell().write('[]', 'yellow'))
+      self.table.add(util.Cell('[]', 'yellow'))
       self._newLine()
 
-    prefix = self.prefix_cells + [self._outline(key_path), Cell()]
+    prefix = self.prefix_cells + [self._outline(key_path), util.Cell()]
     w2 = PrintWalker(self.table, prefix)
     for i, x in enumerate(xs):
       if isinstance(x, gcl.Tuple):
@@ -171,7 +95,7 @@ class PrintWalker(util.ExpressionWalker):
     if isinstance(value, list):
       self._printList(key_path, value)
     else:
-      self.table.add(Cell().write(repr(value)))
+      self.table.add(util.Cell(repr(value)))
       self._newLine()
 
   def visitScalar(self, key_path, value):
@@ -187,7 +111,7 @@ class PrintWalker(util.ExpressionWalker):
 
 
 def print_model(model):
-  table = ConsoleTable()
+  table = util.ConsoleTable()
   util.walk(model, PrintWalker(table))
   table.printOut(sys.stdout)
 

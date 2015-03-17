@@ -728,7 +728,7 @@ def reads(s, filename=None, loader=None, implicit_tuple=True):
 
 def read(filename, loader=None, implicit_tuple=True):
   """Load but don't evaluate a GCL expression from a file."""
-  with file(filename, 'r') as f:
+  with open(filename, 'r') as f:
     return reads(f.read(),
                  filename=filename,
                  loader=loader,
@@ -743,7 +743,7 @@ def loads(s, filename=None, loader=None, implicit_tuple=True, env=None):
 
 def load(filename, loader=None, implicit_tuple=True, env=None):
   """Load and evaluate a GCL expression from a file."""
-  with file(filename, 'r') as f:
+  with open(filename, 'r') as f:
     return loads(f.read(),
                  filename=filename,
                  loader=loader,
