@@ -10,6 +10,10 @@ from gcl import util
 parser = argparse.ArgumentParser(description='Print a GCL model file.')
 parser.add_argument('files', metavar='FILE', type=str, nargs='*',
                     help='Files to print')
+parser.add_argument('-e', '--errors-only', dest='errors_only', action='store_true', default=False,
+                    help='Only show errors')
+parser.add_argument('-l', '--lowercase', dest='lowercase', action='store_true', default=False,
+                    help='Don\'t recurse into variables starting with capital letters.')
 
 args = parser.parse_args()
 
@@ -27,6 +31,8 @@ class Color(object):
 
   @classmethod
   def doColorize(cls, text, color):
+    if not color:
+      return text
     return '%s%s%s' % (getattr(cls, color), text, cls.endc)
 
   if sys.stdout.isatty():
@@ -35,32 +41,155 @@ class Color(object):
     colorize = noColorize
 
 
+class Cell(object):
+  def __init__(self, text='', len=0):
+    self.text = text
+    self.len = len
+
+  def write(self, text, color=''):
+    self.text += Color.colorize(text, color)
+    self.len += len(text)
+    return self
+
+  def copy(self):
+    return Cell(self.text, self.len)
+
+
+class ConsoleTable(object):
+  """Class to print a table of varying column sizes."""
+  def __init__(self):
+    # Cells are lists with a text and a width
+    self.table = [[]]
+
+  def add(self, cell):
+    self.table[-1].append(cell)
+
+  def addAll(self, cells):
+    self.table[-1].extend(cells)
+
+  def feedLine(self):
+    self.table.append([])
+
+  def currentRowCopy(self):
+    return [c.copy() for c in self.table[-1]]
+
+  def _findColumnSizes(self):
+    sizes = []
+    for row in self.table:
+      while len(sizes) < len(row):
+        sizes.append(0)
+      for i, cell in enumerate(row[:-1]):
+        sizes[i] = max(sizes[i], cell.len)
+    return sizes
+
+  def printOut(self, fobj):
+    sizes = self._findColumnSizes()
+    for row in self.table:
+      for i, cell in enumerate(row):
+        if i != 0:
+          fobj.write(' ')
+        fobj.write(cell.text)
+        if i < len(row) - 1:
+          fobj.write(' ' * (sizes[i] - cell.len))
+      fobj.write('\n')
+
+
+def printableKey(k):
+  return not args.lowercase or ('a' <= k[0] <= 'z')
+
+
 class PrintWalker(util.ExpressionWalker):
-  def _printIndented(self, path, key):
-    indent = Color.colorize(('|  ' * (len(path))) + '+- ', 'cyan') + key
-    sys.stdout.write('%-50s' % indent)
+  def __init__(self, table, prefix_cells=[]):
+    self.table = table
+    self.prefix_cells = prefix_cells
+    self.do_prefix = False
+
+  def _newLine(self):
+    self.table.feedLine()
+    self.do_prefix = True
+
+  def _maybePrintPrefix(self):
+    if self.do_prefix:
+      self.table.addAll(self.prefix_cells)
+      self.do_prefix = False
+
+  def _outline(self, path):
+    return Cell().write('|  ' * len(path), 'cyan')
+
+  def _printBullet(self, path):
+    self._maybePrintPrefix()
+    self.table.add(self._outline(path[:-1])
+                       .write('+- ', 'cyan')
+                       .write(path[-1]))
+
+  def _printArrow(self):
+    self.table.add(Cell().write('=>', 'cyan'))
+
+  def _printRecordSeparator(self):
+    self._maybePrintPrefix()
+    self.table.add(Cell().write('----------', 'yellow'))
+    self._newLine()
 
   def enterTuple(self, tuple, path):
     if path:
-      self._printIndented(path[:-1], path[-1])
-      print('')
+      if not printableKey(path[-1]):
+        return False
+      self._printBullet(path)
+      self._newLine()
+
+    return True
 
   def leaveTuple(self, tuple, path):
     pass
 
-  def visitError(self, key, ex, path):
-    self._printIndented(path, key)
-    print(Color.colorize('=> ', 'cyan') +
-          Color.colorize('<%s>' % ex, 'red'))
+  def visitError(self, key_path, ex):
+    self._printBullet(key_path)
+    self._printArrow()
+    self.table.add(Cell().write('<%s>' % ex, 'red'))
+    self._newLine()
 
-  def visitScalar(self, key, value, path):
-    self._printIndented(path, key)
-    print(Color.colorize('=> ', 'cyan') +
-          '%r' % value)
+  def _printList(self, key_path, xs):
+    if not len(xs):
+      self.table.add(Cell().write('[]', 'yellow'))
+      self._newLine()
+
+    prefix = self.prefix_cells + [self._outline(key_path), Cell()]
+    w2 = PrintWalker(self.table, prefix)
+    for i, x in enumerate(xs):
+      if isinstance(x, gcl.Tuple):
+        if i:
+          w2._printRecordSeparator()
+        util.walk(x, w2)
+      else:
+        w2._printScalar([], x)
+
+    if not w2.do_prefix:
+      self._newLine()
+
+  def _printScalar(self, key_path, value):
+    self._maybePrintPrefix()
+    if isinstance(value, list):
+      self._printList(key_path, value)
+    else:
+      self.table.add(Cell().write(repr(value)))
+      self._newLine()
+
+  def visitScalar(self, key_path, value):
+    if args.errors_only:
+      return
+
+    if not printableKey(key_path[-1]):
+      return
+
+    self._printBullet(key_path)
+    self._printArrow()
+    self._printScalar(key_path, value)
 
 
 def print_model(model):
-  util.walk(model, PrintWalker())
+  table = ConsoleTable()
+  util.walk(model, PrintWalker(table))
+  table.printOut(sys.stdout)
 
 
 if args.files:

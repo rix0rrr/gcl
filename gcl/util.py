@@ -44,15 +44,16 @@ def walk(tuple, walker, path=None):
   if walker.enterTuple(tuple, path) is False:
     return  # Do nothing
 
-  keys = tuple.keys()
+  keys = sorted(tuple.keys())
   for key in keys:
+    key_path = path + [key]
     value = get_or_error(tuple, key)
     if isinstance(value, gcl.Tuple):
-      walk(value, walker, path + [key])
+      walk(value, walker, key_path)
     elif isinstance(value, Exception):
-      walker.visitError(key, value, path)
+      walker.visitError(key_path, value)
     else:
-      walker.visitScalar(key, value, path)
+      walker.visitScalar(key_path, value)
 
   walker.leaveTuple(tuple, path)
 
