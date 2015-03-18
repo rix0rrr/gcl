@@ -10,7 +10,7 @@ import pyparsing as p
 
 from . import functions
 
-__version__ = '0.4.5'
+__version__ = '0.4.6'
 
 
 class GCLError(RuntimeError):
@@ -319,7 +319,11 @@ class Tuple(object):
     return self.__items.keys()
 
   def items(self):
-    return [(k, self[k]) for k in self.keys()]
+    return list(self.iteritems())
+
+  def iteritems(self):
+    for k in self.keys():
+      yield k, self[k]
 
   def get_thunk(self, k):
     x = self.__items[k]
