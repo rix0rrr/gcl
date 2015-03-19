@@ -326,6 +326,8 @@ class Tuple(object):
       yield k, self[k]
 
   def get_thunk(self, k):
+    if k not in self.__items:
+      raise EvaluationError('Unknown variable: %r' % k)
     x = self.__items[k]
     # Don't evaluate in this env but parent env
     if isinstance(x, Inherit):
@@ -382,8 +384,7 @@ class CompositeTuple(Tuple):
     return AltEnv(list(tup.keys()) + ['base'], self, tup.env())
 
   def env(self):
-    # Hah. We don't return anything, and it doesn't seem to matter.
-    pass
+    return EmptyEnvironment()
 
   def get_thunk(self, key):
     # If right has the value, we get it from right (unless it's a Void),
@@ -544,7 +545,10 @@ class Deref(Thunk):
     self.needle = needle
 
   def eval(self, env):
-    return self.haystack.eval(env)[self.needle]
+    try:
+      return self.haystack.eval(env)[self.needle]
+    except RuntimeError as e:
+      raise EvaluationError('While evaluating \'%r\': %s' % (self, str(e)))
 
   def __repr__(self):
     return '%s.%s' % (self.haystack, self.needle)

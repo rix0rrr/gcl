@@ -455,6 +455,28 @@ class TestScoping(unittest.TestCase):
     """)
     self.assertEquals(3, x['final']['lower']['foo']);
 
+  def testScopeGoodError(self):
+    x = parse_tuple("""
+    one = { foo = 3 };
+    two = { };
+    final = one two { };
+    """)
+    try:
+      self.assertEquals(3, x['two']['moo'])
+    except gcl.EvaluationError as e:
+      self.assertTrue('Unknown' in str(e))
+
+  def testDoubleApplicationAndResolutionGivesGoodError(self):
+    x = parse_tuple("""
+    one = { sub = { bar = foo }};
+    two = { foo = boo };
+    final = one two { sub; bla = sub.bar };
+    """)
+    try:
+      self.assertEquals(3, x['final']['bla'])
+    except gcl.EvaluationError as e:
+      self.assertTrue('Unbound' in str(e))
+
 
 class TestStandardLibrary(unittest.TestCase):
   def testPathJoin(self):

@@ -6,16 +6,16 @@ import sys
 import gcl
 from gcl import util
 
-def printableKey(args, k):
-  return not args.lowercase or ('a' <= k[0] <= 'z')
-
-
 class PrintWalker(util.ExpressionWalker):
-  def __init__(self, args, table, prefix_cells=[]):
-    self.args = args
+  def __init__(self, table, prefix_cells=[], lowercase=False, errors_only=False):
     self.table = table
     self.prefix_cells = prefix_cells
     self.do_prefix = False
+    self.lowercase = lowercase
+    self.errors_only = errors_only
+
+  def _printableKey(self, k):
+    return not self.lowercase or ('a' <= k[0] <= 'z')
 
   def _newLine(self):
     self.table.feedLine()
@@ -45,7 +45,7 @@ class PrintWalker(util.ExpressionWalker):
 
   def enterTuple(self, tuple, path):
     if path:
-      if not printableKey(self.args, path[-1]):
+      if not self._printableKey(path[-1]):
         return False
       self._printBullet(path)
       self._newLine()
@@ -67,7 +67,7 @@ class PrintWalker(util.ExpressionWalker):
       self._newLine()
 
     prefix = self.prefix_cells + [self._outline(key_path), util.Cell()]
-    w2 = PrintWalker(self.args, self.table, prefix)
+    w2 = PrintWalker(self.table, prefix, lowercase=self.lowercase, errors_only=self.errors_only)
     for i, x in enumerate(xs):
       if isinstance(x, gcl.Tuple):
         if i:
@@ -88,10 +88,10 @@ class PrintWalker(util.ExpressionWalker):
       self._newLine()
 
   def visitScalar(self, key_path, value):
-    if self.args.errors_only:
+    if self.errors_only:
       return
 
-    if not printableKey(self.args, key_path[-1]):
+    if not self._printableKey(key_path[-1]):
       return
 
     self._printBullet(key_path)
@@ -99,19 +99,19 @@ class PrintWalker(util.ExpressionWalker):
     self._printScalar(key_path, value)
 
 
-def print_model(args, model):
+def print_model(model, **kwargs):
   table = util.ConsoleTable()
-  util.walk(model, PrintWalker(args, table))
+  util.walk(model, PrintWalker(table, **kwargs))
   table.printOut(sys.stdout)
 
-def print_selectors(args, model, selectors):
+def print_selectors(model, selectors, **kwargs):
   if not selectors:
-    print_model(args, model)
+    print_model(model, **kwargs)
   else:
     for selector in selectors:
       try:
         print(util.Color.colorize(selector, 'yellow'))
-        print_model(args, util.select(model, selector))
+        print_model(util.select(model, selector), **kwargs)
         print('')
       except RuntimeError as e:
         print(util.Color.colorize(str(e), 'red'))
@@ -138,4 +138,4 @@ def main(argv=None, stdin=None):
   except gcl.ParseError as e:
     print(e)
   else:
-    print_selectors(args, model, args.selectors)
+    print_selectors(model, args.selectors, lowercase=args.lowercase, errors_only=args.errors_only)
