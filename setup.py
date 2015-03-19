@@ -14,7 +14,7 @@ except IOError:
 #https://packaging.python.org/en/latest/distributing.html
 setup(
     name='gcl',
-    version='0.4.6',
+    version='0.4.7',
     description='Generic Configuration Language',
     long_description=long_description,
     url='https://github.com/rix0rrr/gcl',
@@ -22,7 +22,9 @@ setup(
     author_email='rix0rrr@gmail.com',
     license='MIT',
 
-    scripts = ['bin/gcl-print'],
+    entry_points = {
+        'console_scripts' : ['gcl-print=gcl.printer:main'],
+    },
 
     # See https://pypi.python.org/pypi?%3Aaction=list_classifiers
     classifiers=[

@@ -443,6 +443,18 @@ class TestScoping(unittest.TestCase):
     """)
     self.assertEquals(1, x['composed']['foo']);
 
+  def testDoubleInheriting(self):
+    x = parse_tuple("""
+    upper = {
+      foo;
+      sub = {
+        inherit foo;
+      }
+    };
+    final = upper { foo = 3; sub; lower = sub };
+    """)
+    self.assertEquals(3, x['final']['lower']['foo']);
+
 
 class TestStandardLibrary(unittest.TestCase):
   def testPathJoin(self):

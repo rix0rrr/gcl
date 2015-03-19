@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """Script to print a GCL model."""
 
 import argparse
@@ -7,23 +6,13 @@ import sys
 import gcl
 from gcl import util
 
-parser = argparse.ArgumentParser(description='Print a GCL model file.')
-parser.add_argument('files', metavar='FILE', type=str, nargs='*',
-                    help='Files to print')
-parser.add_argument('-e', '--errors-only', dest='errors_only', action='store_true', default=False,
-                    help='Only show errors')
-parser.add_argument('-l', '--lowercase', dest='lowercase', action='store_true', default=False,
-                    help='Don\'t recurse into variables starting with capital letters.')
-
-args = parser.parse_args()
-
-
-def printableKey(k):
+def printableKey(args, k):
   return not args.lowercase or ('a' <= k[0] <= 'z')
 
 
 class PrintWalker(util.ExpressionWalker):
-  def __init__(self, table, prefix_cells=[]):
+  def __init__(self, args, table, prefix_cells=[]):
+    self.args = args
     self.table = table
     self.prefix_cells = prefix_cells
     self.do_prefix = False
@@ -56,7 +45,7 @@ class PrintWalker(util.ExpressionWalker):
 
   def enterTuple(self, tuple, path):
     if path:
-      if not printableKey(path[-1]):
+      if not printableKey(self.args, path[-1]):
         return False
       self._printBullet(path)
       self._newLine()
@@ -78,7 +67,7 @@ class PrintWalker(util.ExpressionWalker):
       self._newLine()
 
     prefix = self.prefix_cells + [self._outline(key_path), util.Cell()]
-    w2 = PrintWalker(self.table, prefix)
+    w2 = PrintWalker(self.args, self.table, prefix)
     for i, x in enumerate(xs):
       if isinstance(x, gcl.Tuple):
         if i:
@@ -99,10 +88,10 @@ class PrintWalker(util.ExpressionWalker):
       self._newLine()
 
   def visitScalar(self, key_path, value):
-    if args.errors_only:
+    if self.args.errors_only:
       return
 
-    if not printableKey(key_path[-1]):
+    if not printableKey(self.args, key_path[-1]):
       return
 
     self._printBullet(key_path)
@@ -110,25 +99,43 @@ class PrintWalker(util.ExpressionWalker):
     self._printScalar(key_path, value)
 
 
-def print_model(model):
+def print_model(args, model):
   table = util.ConsoleTable()
-  util.walk(model, PrintWalker(table))
+  util.walk(model, PrintWalker(args, table))
   table.printOut(sys.stdout)
 
+def print_selectors(args, model, selectors):
+  if not selectors:
+    print_model(args, model)
+  else:
+    for selector in selectors:
+      try:
+        print(util.Color.colorize(selector, 'yellow'))
+        print_model(args, util.select(model, selector))
+        print('')
+      except RuntimeError as e:
+        print(util.Color.colorize(str(e), 'red'))
 
-if args.files:
-  for filename in args.files:
-    try:
-      model = gcl.load(filename)
-    except gcl.ParseError as e:
-      print(e)
-      break
-    else:
-      print_model(model)
-else:
+
+def main(argv=None, stdin=None):
+  parser = argparse.ArgumentParser(description='Print a GCL model file.')
+  parser.add_argument('file', metavar='FILE', type=str, nargs='?',
+                      help='File to parse')
+  parser.add_argument('selectors', metavar='SELECTOR', type=str, nargs='*',
+                      help='Subnodes to print')
+  parser.add_argument('-e', '--errors-only', dest='errors_only', action='store_true', default=False,
+                      help='Only show errors')
+  parser.add_argument('-l', '--lowercase', dest='lowercase', action='store_true', default=False,
+                      help='Don\'t recurse into variables starting with capital letters.')
+
+  args = parser.parse_args(argv or sys.argv[1:])
+
   try:
-    model = gcl.loads(sys.stdin.read(), filename='<stdin>')
+    if args.file and args.file != '-':
+      model = gcl.load(args.file)
+    else:
+      model = gcl.loads((stdin or sys.stdin).read(), filename='<stdin>')
   except gcl.ParseError as e:
     print(e)
   else:
-    print_model(model)
+    print_selectors(args, model, args.selectors)
