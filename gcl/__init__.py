@@ -148,6 +148,24 @@ class Environment(object):
   def extend(self, d):
     return Environment(d or {}, self)
 
+
+class SelectiveEnvironment(object):
+  """Alternating env
+
+  If the key is one of the given keys, get it from the "one" environment,
+  otherwise from the other.
+  """
+  def __init__(self, names, then, alt):
+    self.names = names
+    self.then = then
+    self.alt = alt
+
+  def __getitem__(self, key):
+    if key in self.names:
+      return self.then[key]
+    return self.alt[key]
+
+
 class Thunk(object):
   def eval(self, env):
     raise EvaluationError('Whoops')
@@ -286,7 +304,7 @@ class Tuple(object):
   """
   def __init__(self, items, parent_env):
     self.__items = items
-    self.__parent_env = parent_env
+    self._parent_env = parent_env
 
   def dict(self):
     return self.__items
@@ -303,7 +321,7 @@ class Tuple(object):
       # Check if this is a Thunk that needs to be lazily evaluated before we
       # return it.
       if isinstance(x, Thunk):
-        return x.eval(self.env())
+        return x.eval(self.env(self))
 
       return x
     except Exception as e:
@@ -312,8 +330,10 @@ class Tuple(object):
   def __contains__(self, key):
     return key in self.__items
 
-  def env(self):
-    return Environment(self, self.__parent_env)
+  def env(self, current_scope):
+    """Return an environment that will look up in current_scope for keys in
+    this tuple, and the parent env otherwise."""
+    return SelectiveEnvironment(self.keys(), current_scope, self._parent_env)
 
   def keys(self):
     return self.__items.keys()
@@ -331,9 +351,8 @@ class Tuple(object):
     x = self.__items[k]
     # Don't evaluate in this env but parent env
     if isinstance(x, Inherit):
-      return Inherit(k, self.__parent_env)
+      return Inherit(k, self._parent_env)
     return x
-
 
   def _render(self, key):
     if key in self:
@@ -345,29 +364,13 @@ class Tuple(object):
     return '{%s}' % '; '.join(self._render(k) for k in self.keys())
 
 
-class AltEnv(object):
-  """Alternating env
-
-  If the key is one of the given keys, get it from the "one" environment,
-  otherwise from the other.
-  """
-  def __init__(self, names, then, alt):
-    self.names = names
-    self.then = then
-    self.alt = alt
-
-  def __getitem__(self, key):
-    if key in self.names:
-      return self.then[key]
-    return self.alt[key]
-
-
 class CompositeTuple(Tuple):
-  def __init__(self, left, right):
+  def __init__(self, left, right, parent_env):
     self.left = left
-    self.left_env = self._mk_env(left)
+    self.left_env = left.env(self)
     self.right = right
-    self.right_env = self._mk_env(right)
+    self.right_env = Environment({'base': left}, right.env(self))
+    self._parent_env = parent_env
 
   def __contains__(self, key):
     return key in self.right or key in self.left
@@ -377,14 +380,6 @@ class CompositeTuple(Tuple):
 
   def items(self):
     return [(k, self[k]) for k in self.keys()]
-
-  def _mk_env(self, tup):
-    # Get all names that were already in that tuple from the combination,
-    # otherwise from that tuple's parent.
-    return AltEnv(list(tup.keys()) + ['base'], self, tup.env())
-
-  def env(self):
-    return EmptyEnvironment()
 
   def get_thunk(self, key):
     # If right has the value, we get it from right (unless it's a Void),
@@ -434,7 +429,7 @@ class Application(Thunk):
 
     # Tuple application
     if isinstance(fn, Tuple) or isinstance(fn, CompositeTuple):
-      return self.applyTuple(fn, arg)
+      return self.applyTuple(fn, arg, env)
 
     # List application
     if isinstance(fn, list):
@@ -449,14 +444,14 @@ class Application(Thunk):
   def __repr__(self):
     return '%r(%r)' % (self.left, self.right)
 
-  def applyTuple(self, tuple, right):
+  def applyTuple(self, tuple, right, env):
     """Apply a tuple to something else."""
     if len(right) != 1:
       raise EvaluationError('Tuple (%r) can only be applied to one argument, got %r' % (self.left, self.right))
     right = right[0]
 
     if isinstance(right, Tuple) or isinstance(right, CompositeTuple):
-      return CompositeTuple(tuple, right)
+      return CompositeTuple(tuple, right, env)
 
     if is_str(right):
       return tuple[right]

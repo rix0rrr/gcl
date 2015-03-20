@@ -455,6 +455,17 @@ class TestScoping(unittest.TestCase):
     """)
     self.assertEquals(3, x['final']['lower']['foo']);
 
+  def testDoubleScopeAndInheriting(self):
+    x = parse_tuple("""
+      first = {};
+      outer_thing = 'something';
+      second = {
+          copy = outer_thing;
+      };
+      foo = first second { }
+    """)
+    self.assertEquals('something', x['foo']['copy'])
+
   def testScopeGoodError(self):
     x = parse_tuple("""
     one = { foo = 3 };
