@@ -624,20 +624,20 @@ def bracketedList(l, r, sep, expr, what):
   return (sym(l) - listMembers(sep, expr, what) - sym(r)).setParseAction(head)
 
 
-keywords = ['and', 'or', 'not', 'if', 'then', 'else', 'include', 'inherit']
+keywords = ['and', 'or', 'not', 'if', 'then', 'else', 'include', 'inherit', 'null', 'true', 'false']
 
 expression = p.Forward()
 
 comment = '#' + p.restOfLine
 
-identifier = p.Word(p.alphanums + '_-:')
+identifier = p.Regex(r'[a-zA-Z_][a-zA-Z0-9_:-]*')
 
 # Contants
-integer = p.Combine(p.Word(p.nums)).setParseAction(do(head, int, Constant))
-floating = p.Combine(p.Optional(p.Word(p.nums)) + '.' + p.Word(p.nums)).setParseAction(do(head, float, Constant))
+integer = p.Word(p.nums).setParseAction(do(head, int, Constant))
+floating = p.Regex(r'\d*\.\d+').setParseAction(do(head, float, Constant))
 dq_string = p.QuotedString('"', escChar='\\', multiline=True).setParseAction(do(head, Constant))
 sq_string = p.QuotedString("'", escChar='\\', multiline=True).setParseAction(do(head, Constant))
-boolean = p.Or(['true', 'false']).setParseAction(do(head, mkBool, Constant))
+boolean = (p.Keyword('true') | p.Keyword('false')).setParseAction(do(head, mkBool, Constant))
 null = p.Keyword('null').setParseAction(Null)
 
 # List
@@ -672,31 +672,31 @@ if_then_else = (kw('if') - expression -
 deref = p.Forward()
 include = (kw('include') - deref).setParseAction(doapply(Include))
 
-atom = (floating
-        | integer
+atom = (tuple
+        | variable
         | dq_string
         | sq_string
         | boolean
         | list_
-        | tuple
         | null
         | unary_op
         | parenthesized_expr
         | if_then_else
         | include
-        | variable
+        | floating
+        | integer
         )
 
 # We have two different forms of function application, so they can have 2
 # different precedences. This one: fn(args), which binds stronger than
 # dereferencing (fn(args).attr == (fn(args)).attr)
-applic1 = (atom + p.ZeroOrMore(arg_list)).setParseAction(mkApplications)
+applic1 = (atom - p.ZeroOrMore(arg_list)).setParseAction(mkApplications)
 
 # Dereferencing of an expression (obj.bar)
-deref << (applic1 + p.ZeroOrMore(p.Literal('.').suppress() + identifier)).setParseAction(mkDerefs)
+deref << (applic1 - p.ZeroOrMore(p.Literal('.').suppress() - identifier)).setParseAction(mkDerefs)
 
 # Juxtaposition function application (fn arg), must be 1-arg every time
-applic2 = (deref + p.ZeroOrMore(deref)).setParseAction(mkApplications)
+applic2 = (deref - p.ZeroOrMore(deref)).setParseAction(mkApplications)
 
 # All binary operators at various precedence levels go here:
 # This piece of code does the moral equivalent of:
@@ -708,7 +708,7 @@ applic2 = (deref + p.ZeroOrMore(deref)).setParseAction(mkApplications)
 term = applic2
 for op_level in functions.binary_operators:
   operator_syms = ' '.join(op_level.keys())
-  term = (term + p.ZeroOrMore(p.oneOf(operator_syms) + term)).setParseAction(mkBinOps)
+  term = (term - p.ZeroOrMore(p.oneOf(operator_syms) - term)).setParseAction(mkBinOps)
 
 expression << term
 
@@ -716,9 +716,6 @@ expression << term
 # scope to be a tuple.
 start = expression.ignore(comment)
 start_tuple = tuple_members.ignore(comment)
-
-# Notes:
-# 'super' or 'base' of some sort?
 
 #----------------------------------------------------------------------
 #  Top-level functions
