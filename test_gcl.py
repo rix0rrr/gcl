@@ -204,6 +204,13 @@ class TestApplication(unittest.TestCase):
     """)
     self.assertEquals(4, x['right']['a'])
 
+  def testBaseDereferenceInDoubleComposite(self):
+    x = parse("""
+    { one = 1 } { two = 2 } { too = base.two; wan = base.one }
+    """)
+    self.assertEquals(1, x['wan'])
+    self.assertEquals(2, x['too'])
+
   def testDereferencingFromFunctionCall1(self):
     self.assertEquals(10, parse('mk_obj(10).attr', env=self.env))
 
@@ -458,11 +465,13 @@ class TestScoping(unittest.TestCase):
   def testDoubleScopeAndInheriting(self):
     x = parse_tuple("""
       first = {};
-      outer_thing = 'something';
-      second = {
-          copy = outer_thing;
+      scope = {
+        outer_thing = 'something';
+        second = {
+            copy = outer_thing;
+        };
       };
-      foo = first second { }
+      foo = first scope.second { }
     """)
     self.assertEquals('something', x['foo']['copy'])
 

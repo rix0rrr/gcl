@@ -116,10 +116,13 @@ the_context = ParseContext()
 
 class EmptyEnvironment(object):
   def __getitem__(self, key):
-    raise EvaluationError('Unbound variable: %r' % key)
+    raise EvaluationError('Unbound variable')
 
   def __contains__(self, key):
     return False
+
+  def __repr__(self):
+    return '<empty>'
 
 
 class SourceLocation(object):
@@ -131,39 +134,26 @@ class SourceLocation(object):
 class Environment(object):
   """Binding environment, inherits from another Environment."""
 
-  def __init__(self, values, parent=None):
+  def __init__(self, values, parent=None, names=None):
     self.parent = parent or EmptyEnvironment()
     self.values = values
+    self.names = names or values.keys()
 
   def __getitem__(self, key):
-    if key in self.values:
+    if key in self.names:
       return self.values[key]
     return self.parent[key]
 
   def __contains__(self, key):
-    if key in self.values:
+    if key in self.names:
       return True
     return key in self.parent
 
   def extend(self, d):
     return Environment(d or {}, self)
 
-
-class SelectiveEnvironment(object):
-  """Alternating env
-
-  If the key is one of the given keys, get it from the "one" environment,
-  otherwise from the other.
-  """
-  def __init__(self, names, then, alt):
-    self.names = names
-    self.then = then
-    self.alt = alt
-
-  def __getitem__(self, key):
-    if key in self.names:
-      return self.then[key]
-    return self.alt[key]
+  def __repr__(self):
+    return 'Environment(%s :: %r)' % (', '.join(self.names), self.parent)
 
 
 class Thunk(object):
@@ -235,7 +225,10 @@ class Var(Thunk):
     self.location = location
 
   def eval(self, env):
-    return env[self.name]
+    try:
+      return env[self.name]
+    except RuntimeError as e:
+      raise EvaluationError('While evaluating %r: %s' % (self.name, e))
 
   def __repr__(self):
     return self.name
@@ -325,7 +318,7 @@ class Tuple(object):
 
       return x
     except Exception as e:
-      raise EvaluationError("While evaluating %r: %s" % (key, e))
+      raise EvaluationError('While evaluating %r: %s' % (key, e))
 
   def __contains__(self, key):
     return key in self.__items
@@ -333,10 +326,14 @@ class Tuple(object):
   def env(self, current_scope):
     """Return an environment that will look up in current_scope for keys in
     this tuple, and the parent env otherwise."""
-    return SelectiveEnvironment(self.keys(), current_scope, self._parent_env)
+    return Environment(current_scope, self._parent_env, names=self.keys())
 
   def keys(self):
     return self.__items.keys()
+
+  @property
+  def tuples(self):
+    return [self]
 
   def items(self):
     return list(self.iteritems())
@@ -347,7 +344,7 @@ class Tuple(object):
 
   def get_thunk(self, k):
     if k not in self.__items:
-      raise EvaluationError('Unknown variable: %r' % k)
+      raise EvaluationError('Unknown key: %r' % k)
     x = self.__items[k]
     # Don't evaluate in this env but parent env
     if isinstance(x, Inherit):
@@ -365,28 +362,38 @@ class Tuple(object):
 
 
 class CompositeTuple(Tuple):
-  def __init__(self, left, right, parent_env):
-    self.left = left
-    self.left_env = left.env(self)
-    self.right = right
-    self.right_env = Environment({'base': left}, right.env(self))
-    self._parent_env = parent_env
+  """2 or more composited tuples.
+
+  Keys are looked up from right-to-left, and every key will be evaluated in its
+  tuple's own environment, except the 'current_scope' will be set to the
+  CompositeTuple (so that declared names will be looked up in the composite
+  tuple).
+
+  To properly resolve the special variable 'base', we construct smaller
+  composite tuples which only contain the tuples to the left of each tuple,
+  which will get returned as the result of the expression 'base'.
+  """
+  def __init__(self, tuples):
+    self._tuples = tuples
+    self._keys = reduce(lambda s, t: s.union(t.keys()), self._tuples, set())
+    self._makeEnvs()
+
+  def _makeEnvs(self):
+    subtuples = [CompositeTuple(self.tuples[:i]) for i in range(len(self.tuples))]
+    self._envs = [Environment({'base': subt}, t.env(self)) for t, subt in zip(self.tuples, subtuples)]
+
+  @property
+  def tuples(self):
+    return self._tuples
 
   def __contains__(self, key):
-    return key in self.right or key in self.left
+    return key in self._keys
 
   def keys(self):
-    return list(set(self.left.keys()).union(set(self.right.keys())))
+    return list(self._keys)
 
   def items(self):
     return [(k, self[k]) for k in self.keys()]
-
-  def get_thunk(self, key):
-    # If right has the value, we get it from right (unless it's a Void),
-    # otherwise we get it from left.
-    if key in self.right:
-      return self.right.get_thunk(key)
-    return self.left.get_thunk(key)
 
   def get(self, key, default=None):
     if key in self:
@@ -394,18 +401,15 @@ class CompositeTuple(Tuple):
     return default
 
   def __getitem__(self, key):
-    if key == 'base':
-      # Return reference to base
-      return self.left
-
-    if key in self.right:
-      x = self.right.get_thunk(key)
-      if not isinstance(x, Void):
-        return x.eval(self.right_env)
-    return self.left.get_thunk(key).eval(self.left_env)
+    for tup, env in reversed(zip(self._tuples, self._envs)):
+      if key in tup:
+        thunk = tup.get_thunk(key)
+        if not isinstance(thunk, Void):
+          return thunk.eval(env)
+    raise EvaluationError('Unknown key: %r' % key)
 
   def __repr__(self):
-    return '%r %r' % (self.left, self.right)
+    return ' '.join(repr(t) for t in self.tuples)
 
 
 class Application(Thunk):
@@ -428,7 +432,7 @@ class Application(Thunk):
     # be used for error reporting.
 
     # Tuple application
-    if isinstance(fn, Tuple) or isinstance(fn, CompositeTuple):
+    if isinstance(fn, Tuple):
       return self.applyTuple(fn, arg, env)
 
     # List application
@@ -450,8 +454,8 @@ class Application(Thunk):
       raise EvaluationError('Tuple (%r) can only be applied to one argument, got %r' % (self.left, self.right))
     right = right[0]
 
-    if isinstance(right, Tuple) or isinstance(right, CompositeTuple):
-      return CompositeTuple(tuple, right, env)
+    if isinstance(right, Tuple):
+      return CompositeTuple(tuple.tuples + right.tuples)
 
     if is_str(right):
       return tuple[right]
@@ -541,7 +545,8 @@ class Deref(Thunk):
 
   def eval(self, env):
     try:
-      return self.haystack.eval(env)[self.needle]
+      haystack = self.haystack.eval(env)
+      return haystack[self.needle]
     except RuntimeError as e:
       raise EvaluationError('While evaluating \'%r\': %s' % (self, str(e)))
 
