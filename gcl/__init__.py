@@ -4,6 +4,7 @@ GCL -- Generic Configuration Language
 See README.md for an explanation of GCL and concepts.
 """
 
+import functools
 from os import path
 
 import pyparsing as p
@@ -375,12 +376,14 @@ class CompositeTuple(Tuple):
   """
   def __init__(self, tuples):
     self._tuples = tuples
-    self._keys = reduce(lambda s, t: s.union(t.keys()), self._tuples, set())
-    self._makeEnvs()
+    self._keys = functools.reduce(lambda s, t: s.union(t.keys()), self._tuples, set())
+    self._makeLookupList()
 
-  def _makeEnvs(self):
+  def _makeLookupList(self):
     subtuples = [CompositeTuple(self.tuples[:i]) for i in range(len(self.tuples))]
-    self._envs = [Environment({'base': subt}, t.env(self)) for t, subt in zip(self.tuples, subtuples)]
+    envs = [Environment({'base': subt}, t.env(self)) for t, subt in zip(self.tuples, subtuples)]
+    self._lookups = list(zip(self._tuples, envs))
+    self._lookups.reverse()
 
   @property
   def tuples(self):
@@ -401,7 +404,7 @@ class CompositeTuple(Tuple):
     return default
 
   def __getitem__(self, key):
-    for tup, env in reversed(zip(self._tuples, self._envs)):
+    for tup, env in self._lookups:
       if key in tup:
         thunk = tup.get_thunk(key)
         if not isinstance(thunk, Void):
