@@ -17,9 +17,15 @@ def eager(x):
 
   return dict(x.items())
 
+
+def fmt(str, args):
+  """String interpolation."""
+  return str.format(**args)
+
 builtin_functions = {
     'eager': eager,
-    'path_join': path.join
+    'path_join': path.join,
+    'fmt': fmt
     }
 
 
