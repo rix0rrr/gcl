@@ -18,9 +18,26 @@ def eager(x):
   return dict(x.items())
 
 
+class ValueProxy(object):
+  """Lazy stringification object from a tuple."""
+  def __init__(self, tup, key):
+    self.tup = tup
+    self.key = key
+
+  def __str__(self):
+    return str(self.tup[self.key])
+
+
 def fmt(str, args):
-  """String interpolation."""
-  return str.format(**args)
+  """String interpolation.
+
+  Normally, we'd just call str.format(**args), but we only want to evaluate
+  values from the tuple which are actually used in the string interpolation,
+  so we use proxy objects.
+  """
+  proxies = {k: ValueProxy(args, k) for k in args.keys()}
+  return str.format(**proxies)
+
 
 builtin_functions = {
     'eager': eager,
