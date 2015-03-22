@@ -4,7 +4,7 @@ from os import path
 import gcl
 
 
-class TestFunctions(unittest.TestCase):
+class TestStringInterpolation(unittest.TestCase):
   def testStringInterpolation(self):
     x = gcl.loads("""
     things = { foo = 'FOO'; bar = 'BAR' };
@@ -16,5 +16,19 @@ class TestFunctions(unittest.TestCase):
     x = gcl.loads("""
     things = { foo = 'FOO'; boom; };
     y = fmt('Hi {foo}', things)
+    """)
+    self.assertEquals('Hi FOO', x['y'])
+
+  def testSubInterpolation(self):
+    x = gcl.loads("""
+    things = { sub = { foo = 'FOO'; boom } };
+    y = fmt('Hi {sub.foo}', things)
+    """)
+    self.assertEquals('Hi FOO', x['y'])
+
+  def testImplicitScope(self):
+    x = gcl.loads("""
+    things = { foo = 'FOO'; boom };
+    y = fmt 'Hi {things.foo}'
     """)
     self.assertEquals('Hi FOO', x['y'])

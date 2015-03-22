@@ -125,6 +125,9 @@ class EmptyEnvironment(object):
   def __repr__(self):
     return '<empty>'
 
+  def keys(self):
+    return set()
+
 
 class SourceLocation(object):
   def __init__(self, string, offset):
@@ -152,6 +155,9 @@ class Environment(object):
 
   def extend(self, d):
     return Environment(d or {}, self)
+
+  def keys(self):
+    return set(self.names).union(self.parent.keys())
 
   def __repr__(self):
     return 'Environment(%s :: %r)' % (', '.join(self.names), self.parent)
@@ -445,6 +451,9 @@ class Application(Thunk):
     # Any other callable type, just use as a Python function
     if not callable(fn):
       raise EvaluationError('Result of %r (%r) not callable' % (self.left, fn))
+
+    if isinstance(fn, functions.EnvironmentFunction):
+      return fn(*arg, env=env)
 
     return fn(*arg)
 
