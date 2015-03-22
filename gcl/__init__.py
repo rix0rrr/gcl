@@ -11,7 +11,7 @@ import pyparsing as p
 
 from . import functions
 
-__version__ = '0.4.8'
+__version__ = '0.4.9'
 
 
 class GCLError(RuntimeError):
