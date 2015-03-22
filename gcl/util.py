@@ -32,6 +32,18 @@ def get_or_error(tuple, key):
     return e
 
 
+def to_python(value):
+  """Reify values to their Python equivalents.
+
+  Actually only useful on Tuples.
+  """
+  if isinstance(value, gcl.Tuple):
+    return {k: to_python(value[k]) for k in value.keys()}
+  if isinstance(value, list):
+    return map(to_python, value)
+  return value
+
+
 def walk(tuple, walker, path=None):
   """Walks the _evaluated_ tree of the given GCL tuple.
 
