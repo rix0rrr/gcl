@@ -60,7 +60,63 @@ def find_relative(current_dir, rel_path):
     return path.normpath(path.join(current_dir, rel_path))
 
 
-loader_cache = {}
+class Cache(object):
+  def __init__(self):
+    self._cache = {}
+
+  def get(self, key, thunk):
+    if key not in self._cache:
+      self._cache[key] = thunk()
+    return self._cache[key]
+
+
+class EvalRecord(object):
+  def __init__(self, stack, key):
+    self.stack = stack
+    self.key = key
+
+  def __enter__(self):
+    return self
+
+  def __exit__(self, value, type, exc):
+    self.stack.close(self.key)
+
+
+class EvalStack(object):
+  def __init__(self):
+    self.stack = set()
+
+  def evaluating(self, key, disp_key):
+    if key in self.stack:
+      raise EvaluationError('Double evaluation of %r, infinite recursion?' % disp_key)
+    self.stack.add(key)
+    return EvalRecord(self, key)
+
+  def close(self, key):
+    self.stack.remove(key)
+
+
+# Because we can't trust id(), it'll get reused, we number objects ourselves
+# for caching purposes.
+obj_nr = 0
+
+def obj_ident():
+  global obj_nr
+  obj_nr += 1
+  return obj_nr
+
+
+loader_cache = Cache()
+
+eval_cache = {}
+
+def eval(thunk, env):
+  #with self._evals.evaluating((id(env), key), key):
+  key = (thunk.ident, env.ident)
+  if key not in eval_cache:
+    eval_cache[key] = thunk.eval(env)
+  return eval_cache[key]
+
 
 def loader_with_search_path(search_path):
   """Return a searching loader function.
@@ -85,9 +141,7 @@ def loader_with_search_path(search_path):
     # Target_path looks "nice", which is good for error messages, but we want
     # to cache on the absolute path.
     full_path = path.abspath(target_path)
-    if full_path not in loader_cache:
-      loader_cache[full_path] = load(target_path)
-    return loader_cache[full_path]
+    return loader_cache.get(full_path, lambda: load(target_path))
   return loader
 
 # Default loader doesn't have any search path
@@ -116,6 +170,9 @@ the_context = ParseContext()
 
 
 class EmptyEnvironment(object):
+  def __init__(self):
+    self.ident = obj_ident()
+
   def __getitem__(self, key):
     raise EvaluationError('Unbound variable')
 
@@ -139,6 +196,7 @@ class Environment(object):
   """Binding environment, inherits from another Environment."""
 
   def __init__(self, values, parent=None, names=None):
+    self.ident = obj_ident()
     self.parent = parent or EmptyEnvironment()
     self.values = values
     self.names = names or values.keys()
@@ -171,7 +229,7 @@ class Thunk(object):
 class Null(Thunk):
   """Null, evaluates to None."""
   def __init__(self):
-    pass
+    self.ident = obj_ident()
 
   def eval(self, env):
     return None
@@ -183,7 +241,7 @@ class Null(Thunk):
 class Void(Thunk):
   """A missing value."""
   def __init__(self):
-    pass
+    self.ident = obj_ident()
 
   def eval(self, env):
     raise EvaluationError('Unbound value')
@@ -196,6 +254,7 @@ class Inherit(Thunk):
   """Inherit Thunks can be either bound or unbound."""
 
   def __init__(self, name=None, env=None):
+    self.ident = obj_ident()
     self.name = name
     self.env = env
 
@@ -205,15 +264,17 @@ class Inherit(Thunk):
     return self.env[self.name]
 
   def __repr__(self):
-    return 'inherit'
+    return 'inherit %s' % self.name
 
 
 def mkInherits(tokens):
   return [(t, Inherit()) for t in list(tokens)]
 
+
 class Constant(Thunk):
   """A GCL constant expression."""
   def __init__(self, value):
+    self.ident = obj_ident()
     self.value = value
 
   def eval(self, env):
@@ -228,13 +289,14 @@ class Constant(Thunk):
 class Var(Thunk):
   """Reference to another value."""
   def __init__(self, name, location):
+    self.ident = obj_ident()
     self.name = name
     self.location = location
 
   def eval(self, env):
     try:
       return env[self.name]
-    except RuntimeError as e:
+    except EvaluationError as e:
       raise EvaluationError('While evaluating %r: %s' % (self.name, e))
 
   def __repr__(self):
@@ -248,10 +310,11 @@ def mkVar(s, loc, toks):
 class List(Thunk):
   """A GCL list."""
   def __init__(self, values):
+    self.ident = obj_ident()
     self.values = values
 
   def eval(self, env):
-    return [v.eval(env) for v in self.values]
+    return [eval(v, env) for v in self.values]
 
   def __repr__(self):
     return repr(self.values)
@@ -265,10 +328,11 @@ class ArgList(Thunk):
   in this case.
   """
   def __init__(self, values):
+    self.ident = obj_ident()
     self.values = values
 
   def eval(self, env):
-    return [v.eval(env) for v in self.values]
+    return [eval(v, env) for v in self.values]
 
   def __repr__(self):
     return '(%s)' % ', '.join(repr(x) for x in self.values)
@@ -282,10 +346,12 @@ class UnboundTuple(Thunk):
   requested.
   """
   def __init__(self, kv_pairs):
+    self.ident = obj_ident()
     self.items = dict(kv_pairs)
+    self._cache = Cache()
 
   def eval(self, env):
-    return Tuple(self.items, env)
+    return self._cache.get(env.ident, lambda: Tuple(self.items, env))
 
   def __repr__(self):
     return ('{' +
@@ -303,8 +369,10 @@ class Tuple(object):
   not in this Tuple (the lexically enclosing scope).
   """
   def __init__(self, items, parent_env):
+    self.ident = obj_ident()
     self.__items = items
     self._parent_env = parent_env
+    self._env_cache = Cache()  # Env cache so eval caching works more effectively
 
   def dict(self):
     return self.__items
@@ -321,10 +389,10 @@ class Tuple(object):
       # Check if this is a Thunk that needs to be lazily evaluated before we
       # return it.
       if isinstance(x, Thunk):
-        return x.eval(self.env(self))
+        return eval(x, self.env(self))
 
       return x
-    except Exception as e:
+    except EvaluationError as e:
       raise EvaluationError('While evaluating %r: %s' % (key, e))
 
   def __contains__(self, key):
@@ -333,7 +401,9 @@ class Tuple(object):
   def env(self, current_scope):
     """Return an environment that will look up in current_scope for keys in
     this tuple, and the parent env otherwise."""
-    return Environment(current_scope, self._parent_env, names=self.keys())
+    return self._env_cache.get(
+            current_scope.ident,
+            lambda: Environment(current_scope, self._parent_env, names=self.keys()))
 
   def keys(self):
     return self.__items.keys()
@@ -355,6 +425,7 @@ class Tuple(object):
     x = self.__items[k]
     # Don't evaluate in this env but parent env
     if isinstance(x, Inherit):
+      # Change an unbound Inherit into a bound Inherit
       return Inherit(k, self._parent_env)
     return x
 
@@ -381,6 +452,7 @@ class CompositeTuple(Tuple):
   which will get returned as the result of the expression 'base'.
   """
   def __init__(self, tuples):
+    self.ident = obj_ident()
     self._tuples = tuples
     self._keys = functools.reduce(lambda s, t: s.union(t.keys()), self._tuples, set())
     self._makeLookupList()
@@ -414,7 +486,7 @@ class CompositeTuple(Tuple):
       if key in tup:
         thunk = tup.get_thunk(key)
         if not isinstance(thunk, Void):
-          return thunk.eval(env)
+          return eval(thunk, env)
     raise EvaluationError('Unknown key: %r' % key)
 
   def __repr__(self):
@@ -424,12 +496,13 @@ class CompositeTuple(Tuple):
 class Application(Thunk):
   """Function application."""
   def __init__(self, left, right):
+    self.ident = obj_ident()
     self.left = left
     self.right = right
 
   def eval(self, env):
-    fn = self.left.eval(env)
-    arg = self.right.eval(env)
+    fn = eval(self.left, env)
+    arg = eval(self.right, env)
 
     # Normalize arg into a list of arguments, which it already is if the
     # right-hand side is an ArgList, but not otherwise.
@@ -503,11 +576,12 @@ def mkApplications(atoms):
 
 class UnOp(Thunk):
   def __init__(self, op, right):
+    self.ident = obj_ident()
     self.op = op
     self.right = right
 
   def eval(self, env):
-    right = self.right.eval(env)
+    right = eval(self.right, env)
     fn = functions.unary_operators.get(self.op, None)
     if fn is None:
       raise EvaluationError('Unknown unary operator: %s' % self.op)
@@ -523,13 +597,14 @@ def mkUnOp(tokens):
 
 class BinOp(Thunk):
   def __init__(self, left, op, right):
+    self.ident = obj_ident()
     self.left = left
     self.op = op
     self.right = right
 
   def eval(self, env):
-    left = self.left.eval(env)
-    right = self.right.eval(env)
+    left = eval(self.left, env)
+    right = eval(self.right, env)
 
     fn = functions.all_binary_operators.get(self.op, None)
     if fn is None:
@@ -552,15 +627,18 @@ def mkBinOps(tokens):
 class Deref(Thunk):
   """Dereferencing of a dictionary-like object."""
   def __init__(self, haystack, needle):
+    self.ident = obj_ident()
     self.haystack = haystack
     self.needle = needle
 
   def eval(self, env):
     try:
-      haystack = self.haystack.eval(env)
+      haystack = eval(self.haystack, env)
       return haystack[self.needle]
-    except RuntimeError as e:
+    except EvaluationError as e:
       raise EvaluationError('While evaluating \'%r\': %s' % (self, str(e)))
+    except TypeError as e:
+      raise EvaluationError('While getting %r from %r: %s' % (self.needle, self.haystack, e))
 
   def __repr__(self):
     return '%s.%s' % (self.haystack, self.needle)
@@ -575,15 +653,16 @@ def mkDerefs(tokens):
 
 class Condition(Thunk):
   def __init__(self, cond, then, else_):
+    self.ident = obj_ident()
     self.cond = cond
     self.then = then
     self.else_ = else_
 
   def eval(self, env):
-    if self.cond.eval(env):
-      return self.then.eval(env)
+    if eval(self.cond, env):
+      return eval(self.then, env)
     else:
-      return self.else_.eval(env)
+      return eval(self.else_, env)
 
   def __repr__(self):
     return 'if %r then %r else %r' % (self.cond, self.then, self.else_)
@@ -591,12 +670,13 @@ class Condition(Thunk):
 
 class Include(Thunk):
   def __init__(self, file_ref):
+    self.ident = obj_ident()
     self.file_ref = file_ref
     self.current_file = the_context.filename
     self.loader = the_context.loader
 
   def eval(self, env):
-    file_ref = self.file_ref.eval(env)
+    file_ref = eval(self.file_ref, env)
     if not is_str(file_ref):
       raise EvaluationError('Included argument (%r) must be a string, got %r' %
                             (self.file_ref, file_ref))
@@ -755,7 +835,7 @@ def read(filename, loader=None, implicit_tuple=True):
 def loads(s, filename=None, loader=None, implicit_tuple=True, env=None):
   """Load and evaluate a GCL expression from a string."""
   ast = reads(s, filename=filename, loader=loader, implicit_tuple=implicit_tuple)
-  return ast.eval(env or default_env)
+  return eval(ast, env or default_env)
 
 
 def load(filename, loader=None, implicit_tuple=True, env=None):

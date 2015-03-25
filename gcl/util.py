@@ -4,6 +4,11 @@ import gcl
 import hashlib
 import sys
 
+
+class RecursionException(RuntimeError):
+  pass
+
+
 class ExpressionWalker(object):
   """Defines the interface for walk()."""
 
@@ -18,6 +23,9 @@ class ExpressionWalker(object):
   def leaveTuple(self, tuple, path):
     pass
 
+  def visitRecursion(self, key_path):
+    self.visitError(key_path, RecursionException('recursion'))
+
   def visitError(self, key_path, ex):
     pass
 
@@ -28,7 +36,7 @@ class ExpressionWalker(object):
 def get_or_error(tuple, key):
   try:
     return tuple[key]
-  except Exception as e:
+  except gcl.EvaluationError as e:
     return e
 
 
@@ -44,31 +52,55 @@ def to_python(value):
   return value
 
 
-def walk(tuple, walker, path=None):
+def walk(value, walker, path=None, seen=None):
   """Walks the _evaluated_ tree of the given GCL tuple.
 
   The appropriate methods of walker will be invoked for every element in the
   tree.
   """
+  seen = seen or set()
   path = path or []
-  if not isinstance(tuple, gcl.Tuple):
-    raise ValueError('Argument to walk() must be a GCL tuple')
 
-  if walker.enterTuple(tuple, path) is False:
-    return  # Do nothing
+  # Recursion
+  if id(value) in seen:
+    walker.visitRecursion(path)
+    return
 
-  keys = sorted(tuple.keys())
+  # Error
+  if isinstance(value, Exception):
+    walker.visitError(path, value)
+    return
+
+  # List
+  if isinstance(value, list):
+    # Not actually a tuple, but okay
+    if walker.enterTuple(value, path) is False:
+      return
+    for i, x in enumerate(value):
+      walk(x, walker, path=path + ['[%s]' % i], seen=seen)
+    walker.leaveTuple(value, path)
+    return
+
+  # Scalar
+  if not isinstance(value, gcl.Tuple):
+    walker.visitScalar(path, value)
+    return
+
+  # Tuple
+  if walker.enterTuple(value, path) is False:
+    return
+
+  seen.add(id(value))  # Anti-recursion
+
+  keys = sorted(value.keys())
   for key in keys:
     key_path = path + [key]
-    value = get_or_error(tuple, key)
-    if isinstance(value, gcl.Tuple):
-      walk(value, walker, key_path)
-    elif isinstance(value, Exception):
-      walker.visitError(key_path, value)
-    else:
-      walker.visitScalar(key_path, value)
+    elm = get_or_error(value, key)
+    walk(elm, walker, path=key_path, seen=seen)
 
-  walker.leaveTuple(tuple, path)
+  walker.leaveTuple(value, path)
+
+  seen.remove(id(value))
 
 
 def select(tuple, selector):

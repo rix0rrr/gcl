@@ -6,6 +6,36 @@ import sys
 import gcl
 from gcl import util
 
+
+class QualifiedPrintWalker(util.ExpressionWalker):
+  def __init__(self, lowercase=False, errors_only=False):
+    self.lowercase = lowercase
+    self.errors_only = errors_only
+
+  def _printableKey(self, k):
+    return not self.lowercase or ('a' <= k[0] <= 'z')
+
+  def enterTuple(self, tuple, path):
+    if path:
+      if not self._printableKey(path[-1]):
+        return False
+    return True
+
+  def leaveTuple(self, tuple, path):
+    pass
+
+  def visitError(self, key_path, ex):
+    print('%s = <%s>' % ('.'.join(key_path), ex))
+
+  def visitScalar(self, key_path, value):
+    if self.errors_only:
+      return
+    if not self._printableKey(key_path[-1]):
+      return
+
+    print('%s = %s' % ('.'.join(key_path), value))
+
+
 class PrintWalker(util.ExpressionWalker):
   def __init__(self, table, prefix_cells=[], lowercase=False, errors_only=False):
     self.table = table
@@ -13,6 +43,7 @@ class PrintWalker(util.ExpressionWalker):
     self.do_prefix = False
     self.lowercase = lowercase
     self.errors_only = errors_only
+    self.tuple_paths = [[]]
 
   def _printableKey(self, k):
     return not self.lowercase or ('a' <= k[0] <= 'z')
@@ -47,13 +78,15 @@ class PrintWalker(util.ExpressionWalker):
     if path:
       if not self._printableKey(path[-1]):
         return False
+
       self._printBullet(path)
       self._newLine()
 
+    self.tuple_paths.append(path)
     return True
 
   def leaveTuple(self, tuple, path):
-    pass
+    self.tuple_paths.pop()
 
   def visitError(self, key_path, ex):
     self._printBullet(key_path)
@@ -61,59 +94,39 @@ class PrintWalker(util.ExpressionWalker):
     self.table.add(util.Cell('<%s>' % ex, 'red'))
     self._newLine()
 
-  def _printList(self, key_path, xs):
-    if not len(xs):
-      self.table.add(util.Cell('[]', 'yellow'))
-      self._newLine()
-
-    prefix = self.prefix_cells + [self._outline(key_path), util.Cell()]
-    w2 = PrintWalker(self.table, prefix, lowercase=self.lowercase, errors_only=self.errors_only)
-    for i, x in enumerate(xs):
-      if isinstance(x, gcl.Tuple):
-        if i:
-          w2._printRecordSeparator()
-        util.walk(x, w2)
-      else:
-        w2._printScalar([], x)
-
-    if not w2.do_prefix:
-      self._newLine()
-
-  def _printScalar(self, key_path, value):
-    self._maybePrintPrefix()
-    if isinstance(value, list):
-      self._printList(key_path, value)
-    else:
-      self.table.add(util.Cell(repr(value)))
-      self._newLine()
-
   def visitScalar(self, key_path, value):
     if self.errors_only:
       return
-
     if not self._printableKey(key_path[-1]):
       return
 
     self._printBullet(key_path)
     self._printArrow()
-    self._printScalar(key_path, value)
+    self._maybePrintPrefix()
+    self.table.add(util.Cell(repr(value)))
+    self._newLine()
 
 
-def print_model(model, **kwargs):
+def pretty_print_model(model, **kwargs):
   table = util.ConsoleTable()
   util.walk(model, PrintWalker(table, **kwargs))
   table.printOut(sys.stdout)
 
-def print_selectors(model, selectors, **kwargs):
+
+def qualified_print(model, **kwargs):
+  util.walk(model, QualifiedPrintWalker(**kwargs))
+
+
+def print_selectors(model, selectors, printer, **kwargs):
   if not selectors:
-    print_model(model, **kwargs)
+    printer(model, **kwargs)
   else:
     for selector in selectors:
       try:
         print(util.Color.colorize(selector, 'yellow'))
-        print_model(util.select(model, selector), **kwargs)
+        printer(util.select(model, selector), **kwargs)
         print('')
-      except RuntimeError as e:
+      except gcl.EvaluationError as e:
         print(util.Color.colorize(str(e), 'red'))
 
 
@@ -125,6 +138,8 @@ def main(argv=None, stdin=None):
                       help='Subnodes to print')
   parser.add_argument('-e', '--errors-only', dest='errors_only', action='store_true', default=False,
                       help='Only show errors')
+  parser.add_argument('-q', '--qualified-paths', dest='qualified_paths', action='store_true', default=False,
+                      help='Show qualified paths')
   parser.add_argument('-l', '--lowercase', dest='lowercase', action='store_true', default=False,
                       help='Don\'t recurse into variables starting with capital letters.')
 
@@ -138,4 +153,5 @@ def main(argv=None, stdin=None):
   except gcl.ParseError as e:
     print(e)
   else:
-    print_selectors(model, args.selectors, lowercase=args.lowercase, errors_only=args.errors_only)
+    printer = qualified_print if args.qualified_paths else pretty_print_model
+    print_selectors(model, args.selectors, printer, lowercase=args.lowercase, errors_only=args.errors_only)
