@@ -497,6 +497,17 @@ class TestScoping(unittest.TestCase):
     except gcl.EvaluationError as e:
       self.assertTrue('Unbound' in str(e))
 
+  def testRecursionDetection(self):
+    x = parse_tuple("""
+    x = { z = y.z };
+    y = { z = x.z };
+    """)
+    try:
+      print(x['y']['z'])
+      self.fail('Should have thrown')
+    except gcl.EvaluationError as e:
+      pass
+
 
 class TestStandardLibrary(unittest.TestCase):
   def testPathJoin(self):

@@ -70,30 +70,16 @@ class Cache(object):
     return self._cache[key]
 
 
-class EvalRecord(object):
+class Activation(object):
   def __init__(self, stack, key):
     self.stack = stack
     self.key = key
 
   def __enter__(self):
-    return self
+    self.stack[self.key] = self
 
   def __exit__(self, value, type, exc):
-    self.stack.close(self.key)
-
-
-class EvalStack(object):
-  def __init__(self):
-    self.stack = set()
-
-  def evaluating(self, key, disp_key):
-    if key in self.stack:
-      raise EvaluationError('Double evaluation of %r, infinite recursion?' % disp_key)
-    self.stack.add(key)
-    return EvalRecord(self, key)
-
-  def close(self, key):
-    self.stack.remove(key)
+    del self.stack[self.key]
 
 
 # Because we can't trust id(), it'll get reused, we number objects ourselves
@@ -107,15 +93,24 @@ def obj_ident():
 
 
 loader_cache = Cache()
-
-eval_cache = {}
+eval_cache = Cache()
+activation_stack = {}
 
 def eval(thunk, env):
+  """Evaluate a thunk in an environment.
+
+  Will defer the actual evaluation to the thunk itself, but adds two things:
+  caching and recursion detection.
+
+  Since we have to use a global evaluation stack, GCL evaluation is not thread
+  safe.
+  """
   #with self._evals.evaluating((id(env), key), key):
   key = (thunk.ident, env.ident)
-  if key not in eval_cache:
-    eval_cache[key] = thunk.eval(env)
-  return eval_cache[key]
+  if key in activation_stack:
+    raise EvaluationError('Reference cycle')
+  with Activation(activation_stack, key):
+    return eval_cache.get(key, lambda: thunk.eval(env))
 
 
 def loader_with_search_path(search_path):
