@@ -5,6 +5,7 @@ import sys
 
 import gcl
 from gcl import util
+from gcl import query
 
 
 class QualifiedPrintWalker(util.ExpressionWalker):
@@ -118,13 +119,14 @@ def qualified_print(model, **kwargs):
 
 
 def print_selectors(model, selectors, printer, **kwargs):
-  if not selectors:
+  sels = query.GPath(selectors)
+  if sels.everything():
     printer(model, **kwargs)
   else:
-    for selector in selectors:
+    for path, value in sels.select(model).paths_values():
       try:
-        print(util.Color.colorize(selector, 'yellow'))
-        printer(util.select(model, selector), **kwargs)
+        print(util.Color.colorize('.'.join(path), 'yellow'))
+        printer(value, **kwargs)
         print('')
       except gcl.EvaluationError as e:
         print(util.Color.colorize(str(e), 'red'))

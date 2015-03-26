@@ -40,15 +40,19 @@ def get_or_error(tuple, key):
     return e
 
 
-def to_python(value):
+def to_python(value, seen=None):
   """Reify values to their Python equivalents.
 
-  Actually only useful on Tuples.
+  Does recursion detection, failing when that happens.
   """
+  seen = seen or set()
   if isinstance(value, gcl.Tuple):
-    return {k: to_python(value[k]) for k in value.keys()}
+    if value.ident in seen:
+      raise RecursionException('to_python: infinite recursion while evaluating %r' % value)
+    seen.add(value.ident)
+    return {k: to_python(value[k], seen=seen) for k in value.keys()}
   if isinstance(value, list):
-    return map(to_python, value)
+    return [to_python(x, seen=seen) for x in value]
   return value
 
 
