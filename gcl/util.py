@@ -107,15 +107,6 @@ def walk(value, walker, path=None, seen=None):
   seen.remove(id(value))
 
 
-def select(tuple, selector):
-  if hasattr(selector, 'split'):
-    selector = selector.split('.')
-
-  for sel in selector:
-    tuple = tuple[sel]
-  return tuple
-
-
 def _digest(value, digest):
   if isinstance(value, gcl.Tuple):
     digest.update('T')
