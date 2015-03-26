@@ -81,7 +81,7 @@ def walk(value, walker, path=None, seen=None):
     if walker.enterTuple(value, path) is False:
       return
     for i, x in enumerate(value):
-      walk(x, walker, path=path + ['[%s]' % i], seen=seen)
+      walk(x, walker, path=path + ['[%d]' % i], seen=seen)
     walker.leaveTuple(value, path)
     return
 

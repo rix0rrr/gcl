@@ -37,7 +37,7 @@ class QualifiedPrintWalker(util.ExpressionWalker):
     print('%s = %s' % ('.'.join(key_path), value))
 
 
-class PrintWalker(util.ExpressionWalker):
+class PrettyPrintWalker(util.ExpressionWalker):
   def __init__(self, table, prefix_cells=[], lowercase=False, errors_only=False):
     self.table = table
     self.prefix_cells = prefix_cells
@@ -110,7 +110,7 @@ class PrintWalker(util.ExpressionWalker):
 
 def pretty_print_model(model, **kwargs):
   table = util.ConsoleTable()
-  util.walk(model, PrintWalker(table, **kwargs))
+  util.walk(model, PrettyPrintWalker(table, **kwargs))
   table.printOut(sys.stdout)
 
 

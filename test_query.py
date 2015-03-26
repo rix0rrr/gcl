@@ -11,6 +11,7 @@ class QueryTests(unittest.TestCase):
       q = { z = 4 };
     };
     obj_list = [{x = 1}, {x = 2}, {x = 3}];
+    scalar_list = [1, 2, 3];
     """)
 
   def testSimpleParse(self):
@@ -49,3 +50,14 @@ class QueryTests(unittest.TestCase):
     sel = query.GPath('obj_list.*')
     result = sel.select(self.model).deep()
     self.assertTrue(isinstance(result['obj_list'], list))
+
+  def testListIndex(self):
+    sel = query.GPath('scalar_list.[1]')
+    result = sel.select(self.model).first()
+    self.assertEquals(2, result)
+
+  def testListIndexDeep(self):
+    sel = query.GPath('scalar_list.[1]')
+    result = sel.select(self.model).deep()
+    self.assertEquals([2], result['scalar_list'])
+

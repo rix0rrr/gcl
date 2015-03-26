@@ -1,4 +1,8 @@
-"""GCL query module."""
+"""GCL query module.
+
+This is a bit haphazard for now, but it defines GPath (yes, very creative),
+which supports selection of elements in an object tree.
+"""
 
 
 import pyparsing as p
@@ -14,14 +18,23 @@ def bla(x):
 
 variable = gcl.variable.copy().setParseAction(lambda x: str(x[0]))
 alts = gcl.bracketedList('{', '}', ',', variable, bla)
+list_index = gcl.sym('[') + gcl.integer.copy().setParseAction(lambda x: int(x[0])) + gcl.sym(']')
 everything = p.Literal('*')
-element = variable | alts | everything
+element = variable | alts | list_index | everything
 
 selector = p.Group(p.Optional(element + p.ZeroOrMore(gcl.sym('.') + element)))
 
 
 def parseSelector(s):
   return selector.parseString(s, parseAll=True)[0]
+
+
+def listKey(ix):
+  return '[%d]' % ix
+
+
+def isListKey(key):
+  return key.startswith('[')
 
 
 class GPath(object):
@@ -55,7 +68,7 @@ class GPath(object):
           return
 
         qhead, qtail = remaining[0], remaining[1:]
-        if isinstance(qhead, tuple):
+        if isinstance(qhead, tuple) and isinstance(value, gcl.Tuple):
           for alt in qhead:
             if alt in value:
               doSelect(value[alt], pre + [alt], qtail)
@@ -65,11 +78,13 @@ class GPath(object):
             reprs = indices
           else:
             indices = range(len(value))
-            reprs = ['[%d]' % i for i in indices]
+            reprs = [listKey(i) for i in indices]
 
           for key, rep in zip(indices, reprs):
             doSelect(value[key], pre + [rep], qtail)
-        else:
+        elif isinstance(qhead, int) and isinstance(value, list):
+          doSelect(value[qhead], pre + [listKey(qhead)], qtail)
+        elif isinstance(value, gcl.Tuple):
           if qhead in value:
             doSelect(value[qhead], pre + [qhead], qtail)
 
@@ -105,7 +120,7 @@ class QueryResult(object):
 
     def set(what, key, value):
       """List-aware set"""
-      if key.startswith('['):
+      if isListKey(key):
         what.append(value)
       else:
         what[key] = value
@@ -113,14 +128,14 @@ class QueryResult(object):
 
     def get(what, key):
       """List-aware get"""
-      if key.startswith('['):
+      if isListKey(key):
         return what[int(key[1:-1])]
       else:
         return what[key]
 
     def contains(what, key):
       """List-aware contains."""
-      if key.startswith('['):
+      if isListKey(key):
         return int(key[1:-1]) < len(what)
       else:
         return key in what
@@ -130,7 +145,7 @@ class QueryResult(object):
       d = ret
       for i, part in enumerate(path[:-1]):
         if not contains(d, part):
-          if path[i+1].startswith('['):
+          if isListKey(path[i+1]):
             d = set(d, part, [])
           else:
             d = set(d, part, {})
