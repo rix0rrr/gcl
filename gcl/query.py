@@ -122,7 +122,7 @@ class QueryResult(object):
       d = ret
       for i, part in enumerate(path[:-1]):
         if not ld_contains(d, part):
-          d = ld_set(d, part, [] isListKey(path[i+1]) else {})
+          d = ld_set(d, part, [] if isListKey(path[i+1]) else {})
         else:
           d = ld_get(d, part)
       ld_set(d, path[-1], value)

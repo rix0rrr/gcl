@@ -25,7 +25,7 @@ class QueryTests(unittest.TestCase):
 
   def testStarParse(self):
     sel = query.GPath('x.*.z')
-    self.assertEquals([3, 4], list(sel.select(self.model).values()))
+    self.assertEquals(set([3, 4]), set(sel.select(self.model).values()))
 
   def testMultiParse(self):
     sel = query.GPath('x.{y,q}.z')
