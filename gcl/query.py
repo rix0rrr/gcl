@@ -117,39 +117,37 @@ class QueryResult(object):
     The leaf values may still be gcl Tuples. Use util.to_python() if you want
     to reify everything to real Python values.
     """
-
-    def set(what, key, value):
-      """List-aware set"""
-      if isListKey(key):
-        what.append(value)
-      else:
-        what[key] = value
-      return value
-
-    def get(what, key):
-      """List-aware get"""
-      if isListKey(key):
-        return what[int(key[1:-1])]
-      else:
-        return what[key]
-
-    def contains(what, key):
-      """List-aware contains."""
-      if isListKey(key):
-        return int(key[1:-1]) < len(what)
-      else:
-        return key in what
-
     ret = {}
     for path, value in self.paths_values():
       d = ret
       for i, part in enumerate(path[:-1]):
-        if not contains(d, part):
-          if isListKey(path[i+1]):
-            d = set(d, part, [])
-          else:
-            d = set(d, part, {})
+        if not ld_contains(d, part):
+          d = ld_set(d, part, [] isListKey(path[i+1]) else {})
         else:
-          d = get(d, part)
-      set(d, path[-1], value)
+          d = ld_get(d, part)
+      ld_set(d, path[-1], value)
     return ret
+
+
+def ld_set(what, key, value):
+  """List-aware set."""
+  if isListKey(key):
+    what.append(value)
+  else:
+    what[key] = value
+  return value
+
+def ld_get(what, key):
+  """List-aware get."""
+  if isListKey(key):
+    return what[int(key[1:-1])]
+  else:
+    return what[key]
+
+def ld_contains(what, key):
+  """List-aware contains."""
+  if isListKey(key):
+    return int(key[1:-1]) < len(what)
+  else:
+    return key in what
+
