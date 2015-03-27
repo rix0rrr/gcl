@@ -51,6 +51,8 @@ def to_python(value, seen=None):
       raise RecursionException('to_python: infinite recursion while evaluating %r' % value)
     seen.add(value.ident)
     return {k: to_python(value[k], seen=seen) for k in value.keys()}
+  if isinstance(value, dict):
+    return {k: to_python(value[k], seen=seen) for k in value.keys()}
   if isinstance(value, list):
     return [to_python(x, seen=seen) for x in value]
   return value
