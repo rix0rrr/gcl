@@ -378,6 +378,9 @@ class Tuple(object):
     return default
 
   def __getitem__(self, key):
+    if type(key) == int:
+      raise ValueError('Trying to access tuple as a list')
+
     try:
       x = self.get_thunk(key)
 
