@@ -23,7 +23,12 @@ class ParseError(GCLError):
 
 
 class EvaluationError(GCLError):
-  pass
+  def __init__(self, message, inner=None):
+    super(EvaluationError, self).__init__(message)
+    self.inner = inner
+
+  def __str__(self):
+    return self.message + ('\n' + str(self.inner) if self.inner else '')
 
 
 def do(*fns):
@@ -169,7 +174,7 @@ class EmptyEnvironment(object):
     self.ident = obj_ident()
 
   def __getitem__(self, key):
-    raise EvaluationError('Unbound variable')
+    raise EvaluationError('Unbound variable: %r' % key)
 
   def __contains__(self, key):
     return False
@@ -183,8 +188,29 @@ class EmptyEnvironment(object):
 
 class SourceLocation(object):
   def __init__(self, string, offset):
+    self.filename = the_context.filename
     self.string = string
     self.offset = offset
+
+  @property
+  def line(self):
+    return p.line(self.offset, self.string)
+
+  @property
+  def lineno(self):
+    return p.lineno(self.offset, self.string)
+
+  @property
+  def col(self):
+    return p.col(self.offset, self.string)
+
+  @property
+  def line_spec(self):
+    return '%s:%s' % (self.filename, self.lineno)
+
+  def error_in_context(self, msg):
+    msg = '%s:%d: %s in \'%s\'' % (self.filename, self.lineno, msg, self.line)
+    return msg
 
 
 class Environment(object):
@@ -235,11 +261,13 @@ class Null(Thunk):
 
 class Void(Thunk):
   """A missing value."""
-  def __init__(self):
+  def __init__(self, name, location):
+    self.name = name
+    self.location = location
     self.ident = obj_ident()
 
   def eval(self, env):
-    raise EvaluationError('Unbound value')
+    raise EvaluationError(self.location.error_in_context('Unbound value: %r' % self.name))
 
   def __repr__(self):
     return '<unbound>'
@@ -292,7 +320,7 @@ class Var(Thunk):
     try:
       return env[self.name]
     except EvaluationError as e:
-      raise EvaluationError('While evaluating %r: %s' % (self.name, e))
+      raise EvaluationError(self.location.error_in_context('while evaluating %r' % self.name), e)
 
   def __repr__(self):
     return self.name
@@ -381,17 +409,14 @@ class Tuple(object):
     if type(key) == int:
       raise ValueError('Trying to access tuple as a list')
 
-    try:
-      x = self.get_thunk(key)
+    x = self.get_thunk(key)
 
-      # Check if this is a Thunk that needs to be lazily evaluated before we
-      # return it.
-      if isinstance(x, Thunk):
-        return eval(x, self.env(self))
+    # Check if this is a Thunk that needs to be lazily evaluated before we
+    # return it.
+    if isinstance(x, Thunk):
+      return eval(x, self.env(self))
 
-      return x
-    except EvaluationError as e:
-      raise EvaluationError('While evaluating %r: %s' % (key, e))
+    return x
 
   def __contains__(self, key):
     return key in self.__items
@@ -643,28 +668,30 @@ def mkBinOps(tokens):
 
 class Deref(Thunk):
   """Dereferencing of a dictionary-like object."""
-  def __init__(self, haystack, needle):
+  def __init__(self, haystack, needle, location):
     self.ident = obj_ident()
     self.haystack = haystack
     self.needle = needle
+    self.location = location
 
   def eval(self, env):
     try:
       haystack = eval(self.haystack, env)
       return haystack[self.needle]
     except EvaluationError as e:
-      raise EvaluationError('While evaluating \'%r\': %s' % (self, str(e)))
+      raise EvaluationError(self.location.error_in_context('while evaluating \'%r\'' % self), e)
     except TypeError as e:
-      raise EvaluationError('While getting %r from %r: %s' % (self.needle, self.haystack, e))
+      raise EvaluationError(self.location.error_in_context('while getting %r from %r' % (self.needle, self.haystack)), e)
 
   def __repr__(self):
     return '%s.%s' % (self.haystack, self.needle)
 
 
-def mkDerefs(tokens):
+def mkDerefs(s, loc, tokens):
+  location = SourceLocation(s, loc)
   tokens = list(tokens)
   while len(tokens) > 1:
-    tokens[0:2] = [Deref(tokens[0], tokens[1])]
+    tokens[0:2] = [Deref(tokens[0], tokens[1], location)]
   return tokens[0]
 
 
@@ -752,7 +779,7 @@ list_ = bracketedList('[', ']', ',', expression, List)
 # Tuple
 inherit = (kw('inherit') - p.ZeroOrMore(identifier)).setParseAction(mkInherits)
 tuple_member = (inherit
-               | (identifier + ~p.FollowedBy('=')).setParseAction(lambda x: (x[0], Void()))
+               | (identifier + ~p.FollowedBy('=')).setParseAction(lambda s, loc, x: (x[0], Void(x[0], SourceLocation(s, loc))))
                | (identifier - '=' - expression).setParseAction(lambda x: (x[0], x[2]))
                )
 tuple_members = listMembers(';', tuple_member, UnboundTuple)
