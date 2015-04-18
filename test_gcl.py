@@ -211,6 +211,34 @@ class TestApplication(unittest.TestCase):
     self.assertEquals(1, x['wan'])
     self.assertEquals(2, x['too'])
 
+  def testBaseWithReferencesToVoid(self):
+    x = parse_tuple("""
+    one = {
+      param;
+      foo = 'something ' + param;
+    };
+    two = {
+      param = 'yay';
+      foo = base.foo + ' world';
+    };
+    three = one two;
+    """)
+    self.assertEquals('something yay world', x['three']['foo']);
+
+  def testBaseWithReferencesToValue(self):
+    x = parse_tuple("""
+    one = {
+      param = 'dontcare';
+      foo = 'something ' + param;
+    };
+    two = {
+      param = 'yay';
+      foo = base.foo + ' world';
+    };
+    three = one two;
+    """)
+    self.assertEquals('something yay world', x['three']['foo']);
+
   def testDereferencingFromFunctionCall1(self):
     self.assertEquals(10, parse('mk_obj(10).attr', env=self.env))
 

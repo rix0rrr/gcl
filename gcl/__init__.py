@@ -398,7 +398,8 @@ class Tuple(object):
 
   def env(self, current_scope):
     """Return an environment that will look up in current_scope for keys in
-    this tuple, and the parent env otherwise."""
+    this tuple, and the parent env otherwise.
+    """
     return self._env_cache.get(
             current_scope.ident,
             lambda: Environment(current_scope, self._parent_env, names=self.keys()))
@@ -437,6 +438,24 @@ class Tuple(object):
     return '{%s}' % '; '.join(self._render(k) for k in self.keys())
 
 
+class CompositeBaseTuple(object):
+  """A tuple-like object that will be used to resolve 'base' to.
+
+  This will start looking in the tuples of the composite, from right to left,
+  and check the complete composite for declared v
+  """
+  def __init__(self, composite, index):
+    self.composite = composite
+    self.index = index
+
+  def __getitem__(self, key):
+    for tup, env in self.composite.lookups[self.index:]:
+      if key in tup:
+        thunk = tup.get_thunk(key)
+        if not isinstance(thunk, Void):
+          return eval(thunk, env)
+    raise EvaluationError('Unknown key in base: %r' % key)
+
 class CompositeTuple(Tuple):
   """2 or more composited tuples.
 
@@ -456,10 +475,10 @@ class CompositeTuple(Tuple):
     self._makeLookupList()
 
   def _makeLookupList(self):
-    subtuples = [CompositeTuple(self.tuples[:i]) for i in range(len(self.tuples))]
-    envs = [Environment({'base': subt}, t.env(self)) for t, subt in zip(self.tuples, subtuples)]
-    self._lookups = list(zip(self._tuples, envs))
-    self._lookups.reverse()
+    # Count index from the back because we're going to reverse
+    envs = [Environment({'base': CompositeBaseTuple(self, len(self.tuples) - i)}, t.env(self)) for i, t in enumerate(self.tuples)]
+    self.lookups = list(zip(self._tuples, envs))
+    self.lookups.reverse()
 
   @property
   def tuples(self):
@@ -480,7 +499,7 @@ class CompositeTuple(Tuple):
     return default
 
   def __getitem__(self, key):
-    for tup, env in self._lookups:
+    for tup, env in self.lookups:
       if key in tup:
         thunk = tup.get_thunk(key)
         if not isinstance(thunk, Void):
