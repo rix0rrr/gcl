@@ -14,7 +14,7 @@ except IOError:
 #https://packaging.python.org/en/latest/distributing.html
 setup(
     name='gcl',
-    version='0.4.10',
+    version='0.4.11',
     description='Generic Configuration Language',
     long_description=long_description,
     url='https://github.com/rix0rrr/gcl',

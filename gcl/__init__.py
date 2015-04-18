@@ -11,7 +11,7 @@ import pyparsing as p
 
 from . import functions
 
-__version__ = '0.4.10'
+__version__ = '0.4.11'
 
 
 class GCLError(RuntimeError):
@@ -28,7 +28,7 @@ class EvaluationError(GCLError):
     self.inner = inner
 
   def __str__(self):
-    return self.message + ('\n' + str(self.inner) if self.inner else '')
+    return self.args[0] + ('\n' + str(self.inner) if self.inner else '')
 
 
 def do(*fns):
