@@ -13,11 +13,11 @@ import gcl
 class QueryError(RuntimeError):
   pass
 
-def bla(x):
+def mkAlternates(x):
   return tuple(x)
 
 variable = gcl.variable.copy().setParseAction(lambda x: str(x[0]))
-alts = gcl.bracketedList('{', '}', ',', variable, bla)
+alts = gcl.bracketedList('{', '}', ',', variable, mkAlternates)
 list_index = gcl.sym('[') + gcl.integer.copy().setParseAction(lambda x: int(x[0])) + gcl.sym(']')
 everything = p.Literal('*')
 element = variable | alts | list_index | everything
