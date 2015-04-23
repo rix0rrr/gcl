@@ -565,3 +565,21 @@ class TestIncludes(unittest.TestCase):
   def testIncludeWithApplyPrecedence(self):
     x = self.parse('/home/me/file', 'inc = include "other_file.gcl" { foo = 3 };')
     self.assertEquals(3, x['inc']['foo']);
+
+
+class TestRuntimeCaps(unittest.TestCase):
+  def testComposeTupleWithDict(self):
+    x = parse_tuple("""
+    single;
+    double = single + single;
+    """)
+
+    self.assertEquals('toottoot', x.compose({ 'single': 'toot' })['double'])
+
+  def testDoubleComposeTupleWithDict(self):
+    x = parse_tuple("""
+    single;
+    double = single + single;
+    """)
+    self.assertEquals('wootwoot',
+                      x.compose({ 'single': 'toot' }).compose({'single': 'woot'})['double'])

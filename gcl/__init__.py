@@ -459,6 +459,11 @@ class Tuple(object):
     else:
       return '%s' % key
 
+  def compose(self, tup):
+    if not isinstance(tup, Tuple):
+      tup = Tuple(tup, EmptyEnvironment())
+    return CompositeTuple(self.tuples + [tup])
+
   def __repr__(self):
     return '{%s}' % '; '.join(self._render(k) for k in self.keys())
 
@@ -477,9 +482,18 @@ class CompositeBaseTuple(object):
     for tup, env in self.composite.lookups[self.index:]:
       if key in tup:
         thunk = tup.get_thunk(key)
+        if not isinstance(thunk, Thunk):
+          return thunk
         if not isinstance(thunk, Void):
           return eval(thunk, env)
     raise EvaluationError('Unknown key in base: %r' % key)
+
+
+def env_of(tup, self):
+  if isinstance(tup, Tuple):
+    return tup.env(self)
+  return tup
+
 
 class CompositeTuple(Tuple):
   """2 or more composited tuples.
@@ -501,7 +515,7 @@ class CompositeTuple(Tuple):
 
   def _makeLookupList(self):
     # Count index from the back because we're going to reverse
-    envs = [Environment({'base': CompositeBaseTuple(self, len(self.tuples) - i)}, t.env(self)) for i, t in enumerate(self.tuples)]
+    envs = [Environment({'base': CompositeBaseTuple(self, len(self.tuples) - i)}, env_of(t, self)) for i, t in enumerate(self.tuples)]
     self.lookups = list(zip(self._tuples, envs))
     self.lookups.reverse()
 
@@ -523,10 +537,17 @@ class CompositeTuple(Tuple):
       return self[key]
     return default
 
+  def compose(self, tup):
+    if not isinstance(tup, Tuple):
+      tup = Tuple(tup, EmptyEnvironment())
+    return CompositeTuple(self.tuples + [tup])
+
   def __getitem__(self, key):
     for tup, env in self.lookups:
       if key in tup:
         thunk = tup.get_thunk(key)
+        if not isinstance(thunk, Thunk):
+          return thunk  # Not a thunk but a literal then
         if not isinstance(thunk, Void):
           return eval(thunk, env)
     raise EvaluationError('Unknown key: %r' % key)
