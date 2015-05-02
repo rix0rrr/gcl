@@ -11,7 +11,7 @@ import pyparsing as p
 
 from . import functions
 
-__version__ = '0.4.12'
+__version__ = '0.4.13'
 
 
 class GCLError(RuntimeError):
@@ -128,7 +128,7 @@ class OnDiskFiles(object):
 
     target_path = None
     for search in search_path:
-      if self.exists(path.join(search, rel_path)):
+      if path.isfile(path.join(search, rel_path)):
         target_path = path.normpath(path.join(search, rel_path))
         break
 
