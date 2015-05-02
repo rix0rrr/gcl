@@ -92,7 +92,7 @@ class PrettyPrintWalker(util.ExpressionWalker):
   def visitError(self, key_path, ex):
     self._printBullet(key_path)
     self._printArrow()
-    self.table.add(util.Cell('<%s>' % ex, 'red'))
+    self.table.add(util.Cell('<%s>' % util.compact_error(ex), 'red'))
     self._newLine()
 
   def visitScalar(self, key_path, value):
