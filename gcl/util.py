@@ -1,8 +1,11 @@
 """GCL utility functions."""
 
-import gcl
 import hashlib
+import json
 import sys
+from os import path
+
+import gcl
 
 
 class RecursionException(RuntimeError):
@@ -211,3 +214,100 @@ class ConsoleTable(object):
         if i < len(row) - 1:
           fobj.write(' ' * (sizes[i] - cell.len))
       fobj.write('\n')
+
+
+def no_filter(filename, x):
+  return x
+
+
+def interpolate_json(filename, x):
+  if isinstance(x, int) or isinstance(x, float):
+    return x
+  return InterpolatableJSON(x)
+
+
+class InterpolatableJSON(object):
+  """JSON list or dict in which string values can be string-interpolated."""
+  def __init__(self, obj, subs=None):
+    self.obj = obj
+    self.subs = subs or {}
+    self.evalled = None
+
+  def _eval(self):
+    if not self.evalled:
+      self.evalled = self._translate(self.obj)
+
+  def _translate(self, x):
+    if isinstance(x, dict):
+      return {self._translate(k): self._translate(v) for k, v in self.obj.iteritems()}
+    if isinstance(x, list):
+      return [self._translate(x) for x in self.obj]
+    if gcl.is_str(x):
+      return x.format(**self.subs)
+    return x
+
+  def __call__(self, other):
+    if not hasattr(other, 'items'):
+      raise RuntimeError('Can only combine JSON objects with tuples')
+
+    return InterpolatableJSON(self.obj, dict(self.subs, **dict(other.items())))
+
+  def __getitem__(self, key):
+    self._eval()
+    return self.evalled[key]
+
+  def items(self):
+    self._eval()
+    return self.evalled.items()
+
+  def iteritems(self):
+    self._eval()
+    return self.evalled.iteritems()
+
+  def __len__(self):
+    return len(self.obj)
+
+  def __iter__(self):
+    self._eval()
+    return iter(self.evalled)
+
+  def keys(self):
+    self._eval()
+    return self.evalled.keys()
+
+  def __zero__(self):
+    return self.obj.__zero__()
+
+  def __nonzero__(self):
+    return self.obj.__nonzero__()
+
+  def __str__(self):
+    self._eval()
+    return str(self.evalled)
+
+  def __repr__(self):
+    self._eval()
+    return repr(self.evalled)
+
+
+class JSONLoader(object):
+  """A loader that also is able to load JSON files and directories.
+
+  Allows filtering of the loaded JSON through a modifier function, if
+  necessary (for example, SubstitutableDict).
+  """
+  def __init__(self, fs, filter_fn=None):
+    self.fs = fs
+    self.cache = gcl.Cache()
+    self.filter_fn = filter_fn or no_filter
+
+  def __call__(self, current_file, rel_path):
+    nice_path, full_path = self.fs.resolve(current_file, rel_path)
+
+    if path.splitext(nice_path)[1] == '.json':
+      # Load as JSON
+      do_load = lambda: self.filter_fn(nice_path, json.loads(self.fs.load(full_path)))
+    else:
+      # Load as GCL
+      do_load = lambda: loads(self.fs.load(full_path), filename=nice_path, loader=self)
+    return self.cache.get(full_path, do_load)

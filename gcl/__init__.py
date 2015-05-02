@@ -97,7 +97,6 @@ def obj_ident():
   return obj_nr
 
 
-loader_cache = Cache()
 eval_cache = Cache()
 activation_stack = {}
 
@@ -118,34 +117,70 @@ def eval(thunk, env):
     return eval_cache.get(key, lambda: thunk.eval(env))
 
 
-def loader_with_search_path(search_path):
-  """Return a searching loader function.
+class OnDiskFiles(object):
+  """Abstraction of a file system, with search path."""
+  def __init__(self, search_path=[]):
+    self.search_path = search_path
 
-  The loader will search all directories on the given search path.
-  """
-  def loader(current_file, rel_path):
-    """Default file-based loader."""
-    search_all = [path.dirname(current_file)] + search_path
+  def resolve(self, current_file, rel_path):
+    """Search the filesystem."""
+    search_path = [path.dirname(current_file)] + self.search_path
 
     target_path = None
-    for search in search_all:
-      if path.isfile(path.join(search, rel_path)):
+    for search in search_path:
+      if self.exists(path.join(search, rel_path)):
         target_path = path.normpath(path.join(search, rel_path))
         break
 
     if not target_path:
       raise EvaluationError('No such file: %r, searched %s' %
-                            (rel_path, ':'.join(search_all)))
+                            (rel_path, ':'.join(search_path)))
+
+    return target_path, path.abspath(target_path)
+
+  def load(self, path):
+    with open(path, 'r') as f:
+      return f.read()
 
 
-    # Target_path looks "nice", which is good for error messages, but we want
-    # to cache on the absolute path.
-    full_path = path.abspath(target_path)
-    return loader_cache.get(full_path, lambda: load(target_path))
-  return loader
+class InMemoryFiles(object):
+  """Simulate a filesystem from an in-memory dictionary.
+
+  The dictionary maps path to file contents.
+  """
+  def __init__(self, file_dict):
+    self.file_dict = file_dict
+
+  def resolve(self, current_file, rel_path):
+    """Search the filesystem."""
+    p = path.join(path.dirname(current_file), rel_path)
+    if p not in self.file_dict:
+      raise RuntimeError('No such fake file: %r' % p)
+    return p, p
+
+  def load(self, path):
+    return self.file_dict[path]
+
+
+class NormalLoader(object):
+  def __init__(self, fs):
+    self.fs = fs
+    self.cache = Cache()
+
+  def __call__(self, current_file, rel_path):
+    nice_path, full_path = self.fs.resolve(current_file, rel_path)
+
+    # Cache on full path, but tell script about nice path
+    do_load = lambda: loads(self.fs.load(full_path), filename=nice_path, loader=self)
+    return self.cache.get(full_path, do_load)
+
+
+def loader_with_search_path(search_path):
+  return NormalLoader(OnDiskFiles(search_path))
+
 
 # Default loader doesn't have any search path
-default_loader = loader_with_search_path([])
+default_loader = NormalLoader(OnDiskFiles())
 
 # Python 2 and 3 compatible string check
 try:
