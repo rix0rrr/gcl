@@ -43,6 +43,10 @@ def get_or_error(tuple, key):
     return e
 
 
+# Python 2/3 compatibility for iteritems
+p6_iteritems = (lambda x: x.iteritems()) if hasattr({}, 'iteritems') else (lambda x: x.items())
+
+
 def to_python(value, seen=None):
   """Reify values to their Python equivalents.
 
@@ -239,7 +243,7 @@ class InterpolatableJSON(object):
 
   def _translate(self, x):
     if isinstance(x, dict):
-      return {self._translate(k): self._translate(v) for k, v in self.obj.iteritems()}
+      return {self._translate(k): self._translate(v) for k, v in p6_iteritems(self.obj)}
     if isinstance(x, list):
       return [self._translate(x) for x in self.obj]
     if gcl.is_str(x):
@@ -262,7 +266,7 @@ class InterpolatableJSON(object):
 
   def iteritems(self):
     self._eval()
-    return self.evalled.iteritems()
+    return p6_iteritems(self.evalled)
 
   def __len__(self):
     return len(self.obj)
