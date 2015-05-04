@@ -332,5 +332,3 @@ def compact_error(err):
     else:
       return str(e), 1
   return err2(err)[0]
-
-

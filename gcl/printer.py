@@ -154,6 +154,7 @@ def main(argv=None, stdin=None):
       model = gcl.loads((stdin or sys.stdin).read(), filename='<stdin>')
   except gcl.ParseError as e:
     print(e)
+    sys.exit(1)
   else:
     printer = qualified_print if args.qualified_paths else pretty_print_model
     print_selectors(model, args.selectors, printer, lowercase=args.lowercase, errors_only=args.errors_only)

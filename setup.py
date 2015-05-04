@@ -23,7 +23,10 @@ setup(
     license='MIT',
 
     entry_points = {
-        'console_scripts' : ['gcl-print=gcl.printer:main'],
+        'console_scripts' : [
+            'gcl-print=gcl.printer:main',
+            'gcl2json=gcl.to_json:main',
+        ],
     },
 
     # See https://pypi.python.org/pypi?%3Aaction=list_classifiers
