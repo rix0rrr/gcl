@@ -417,7 +417,25 @@ class UnboundTuple(Thunk):
             '}')
 
 
-class Tuple(object):
+class TupleLike(object):
+  """Interface for tuple-like objects."""
+  def __getitem__(self, key):
+    pass
+
+  def keys(self):
+    pass
+
+  def items(self):
+    pass
+
+  def __contains__(self):
+    return
+
+  def __iter__(self):
+    return
+
+
+class Tuple(TupleLike):
   """Bound tuple, with lazy evaluation.
 
   Contains real values or Thunks. Thunks will be evaluated upon request, but

@@ -26,7 +26,10 @@ selector = p.Group(p.Optional(element + p.ZeroOrMore(gcl.sym('.') + element)))
 
 
 def parseSelector(s):
-  return selector.parseString(s, parseAll=True)[0]
+  try:
+    return selector.parseString(s, parseAll=True)[0]
+  except p.ParseException, e:
+    raise RuntimeError('Error parsing %r: %s' % (s, e))
 
 
 def listKey(ix):
@@ -37,9 +40,8 @@ def isListKey(key):
   return key.startswith('[')
 
 
-
 def is_tuple(x):
-  return isinstance(x, gcl.Tuple) or isinstance(x, dict)
+  return isinstance(x, gcl.TupleLike) or isinstance(x, dict)
 
 
 class GPath(object):

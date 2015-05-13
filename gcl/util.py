@@ -95,7 +95,7 @@ def walk(value, walker, path=None, seen=None):
     return
 
   # Scalar
-  if not isinstance(value, gcl.Tuple):
+  if not isinstance(value, gcl.TupleLike):
     walker.visitScalar(path, value)
     return
 
@@ -117,7 +117,7 @@ def walk(value, walker, path=None, seen=None):
 
 
 def _digest(value, digest):
-  if isinstance(value, gcl.Tuple):
+  if isinstance(value, gcl.TupleLike):
     digest.update('T')
     for k in value.keys():
       v = get_or_error(value, k)
@@ -230,7 +230,7 @@ def interpolate_json(filename, x):
   return InterpolatableJSON(x)
 
 
-class InterpolatableJSON(object):
+class InterpolatableJSON(gcl.TupleLike):
   """JSON list or dict in which string values can be string-interpolated."""
   def __init__(self, obj, subs=None):
     self.obj = obj
@@ -243,9 +243,9 @@ class InterpolatableJSON(object):
 
   def _translate(self, x):
     if isinstance(x, dict):
-      return {self._translate(k): self._translate(v) for k, v in p6_iteritems(self.obj)}
+      return {self._translate(k): self._translate(v) for k, v in p6_iteritems(x)}
     if isinstance(x, list):
-      return [self._translate(x) for x in self.obj]
+      return [self._translate(y) for y in x]
     if gcl.is_str(x):
       return x.format(**self.subs)
     return x
@@ -274,6 +274,10 @@ class InterpolatableJSON(object):
   def __iter__(self):
     self._eval()
     return iter(self.evalled)
+
+  def __contains__(self, key):
+    self._eval()
+    return key in self.evalled
 
   def keys(self):
     self._eval()
@@ -313,7 +317,7 @@ class JSONLoader(object):
       do_load = lambda: self.filter_fn(nice_path, json.loads(self.fs.load(full_path)))
     else:
       # Load as GCL
-      do_load = lambda: loads(self.fs.load(full_path), filename=nice_path, loader=self)
+      do_load = lambda: gcl.loads(self.fs.load(full_path), filename=nice_path, loader=self)
     return self.cache.get(full_path, do_load)
 
 
