@@ -28,7 +28,7 @@ selector = p.Group(p.Optional(element + p.ZeroOrMore(gcl.sym('.') + element)))
 def parseSelector(s):
   try:
     return selector.parseString(s, parseAll=True)[0]
-  except p.ParseException, e:
+  except p.ParseException as e:
     raise RuntimeError('Error parsing %r: %s' % (s, e))
 
 
