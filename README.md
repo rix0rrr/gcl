@@ -104,6 +104,10 @@ Expressions can also include conditions, using the `if` statement:
     # Of course, since these are booleans, the above could also be written as:
     allow_test_commands = stage == 'alpha';
 
+Lists can be manipulated using list comprehensions:
+
+    [ x * 2 for x in [1, 2, 3, 4, 5] if x % 2 == 0 ]
+
 Tuple composition
 -----------------
 
