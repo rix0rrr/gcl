@@ -167,11 +167,11 @@ class NormalLoader(object):
     self.fs = fs
     self.cache = Cache()
 
-  def __call__(self, current_file, rel_path):
+  def __call__(self, current_file, rel_path, env=None):
     nice_path, full_path = self.fs.resolve(current_file, rel_path)
 
     # Cache on full path, but tell script about nice path
-    do_load = lambda: loads(self.fs.load(full_path), filename=nice_path, loader=self)
+    do_load = lambda: loads(self.fs.load(full_path), filename=nice_path, loader=self, env=env)
     return self.cache.get(full_path, do_load)
 
 
@@ -220,6 +220,13 @@ class EmptyEnvironment(object):
   def keys(self):
     return set()
 
+  @property
+  def root(self):
+    return self
+
+  def extend(self, d):
+    return Environment(d or {}, self)
+
 
 class SourceLocation(object):
   def __init__(self, string, offset):
@@ -266,6 +273,13 @@ class Environment(object):
     if key in self.names:
       return True
     return key in self.parent
+
+  @property
+  def root(self):
+    if isinstance(self.parent, EmptyEnvironment):
+      return self
+    else:
+      return self.parent.root
 
   def extend(self, d):
     return Environment(d or {}, self)
@@ -799,7 +813,7 @@ class Include(Thunk):
       raise EvaluationError('Included argument (%r) must be a string, got %r' %
                             (self.file_ref, file_ref))
 
-    return self.loader(self.current_file, file_ref)
+    return self.loader(self.current_file, file_ref, env=env.root)
 
   def __repr__(self):
     return 'include(%r)' % self.file_ref

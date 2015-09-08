@@ -309,7 +309,7 @@ class JSONLoader(object):
     self.cache = gcl.Cache()
     self.filter_fn = filter_fn or no_filter
 
-  def __call__(self, current_file, rel_path):
+  def __call__(self, current_file, rel_path, env=None):
     nice_path, full_path = self.fs.resolve(current_file, rel_path)
 
     if path.splitext(nice_path)[1] == '.json':
@@ -317,7 +317,7 @@ class JSONLoader(object):
       do_load = lambda: self.filter_fn(nice_path, json.loads(self.fs.load(full_path)))
     else:
       # Load as GCL
-      do_load = lambda: gcl.loads(self.fs.load(full_path), filename=nice_path, loader=self)
+      do_load = lambda: gcl.loads(self.fs.load(full_path), filename=nice_path, loader=self, env=env)
     return self.cache.get(full_path, do_load)
 
 
