@@ -316,6 +316,17 @@ class TestExpressions(unittest.TestCase):
     self.assertEquals(1, parse('if 0 < 5 then 1 else 2'))
     self.assertEquals(2, parse('if 5 < 0 then 1 else 2'))
 
+  def testListComprehension(self):
+    self.assertEquals([2, 4], parse('[x * 2 for x in [1, 2]]'))
+
+  def testListComprehensionWithIf(self):
+    self.assertEquals([4], parse('[x * 2 for x in [1, 2] if x % 2 == 0]'))
+
+  def testListComprehensionWithFunctionCall(self):
+    self.assertEquals([2, 4, 6], parse('[double x for x in [1, 2] + [3]]', {
+        'double': lambda x: x * 2
+      }))
+
 
 class TestScoping(unittest.TestCase):
   def testOuterValueAvailableInInnerOne(self):

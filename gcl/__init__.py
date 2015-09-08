@@ -800,6 +800,26 @@ class Condition(Thunk):
     return 'if %r then %r else %r' % (self.cond, self.then, self.else_)
 
 
+class ListComprehension(Thunk):
+  def __init__(self, expr, var, collection, cond=None):
+    self.ident = obj_ident()
+    self.expr = expr
+    self.var = var
+    self.collection = collection
+    self.cond = cond
+
+  def eval(self, env):
+    ret = []
+    for x in eval(self.collection, env):
+      new_env = Environment({self.var.name:x}, env)
+      if self.cond is None or eval(self.cond, new_env):
+        ret.append(eval(self.expr, new_env))
+    return ret
+
+  def __repr__(self):
+    return '[%r for %r in %r]' % (self.expr, self.var, self.collection)
+
+
 class Include(Thunk):
   def __init__(self, file_ref):
     self.ident = obj_ident()
@@ -845,7 +865,8 @@ def bracketedList(l, r, sep, expr, what):
   return (sym(l) - listMembers(sep, expr, what) - sym(r)).setParseAction(head)
 
 
-keywords = ['and', 'or', 'not', 'if', 'then', 'else', 'include', 'inherit', 'null', 'true', 'false']
+keywords = ['and', 'or', 'not', 'if', 'then', 'else', 'include', 'inherit', 'null', 'true', 'false',
+    'for', 'in']
 
 expression = p.Forward()
 
@@ -874,7 +895,7 @@ tuple_members = listMembers(';', tuple_member, UnboundTuple)
 tuple = bracketedList('{', '}', ';', tuple_member, UnboundTuple)
 
 # Variable (can't be any of the keywords, which may have lower matching priority)
-variable = ~p.oneOf(' '.join(keywords)) + identifier.copy().setParseAction(mkVar)
+variable = ~p.Or([p.Keyword(k) for k in keywords]) + identifier.copy().setParseAction(mkVar)
 
 # Argument list will live by itself as a atom. Actually, it's a tuple, but we
 # don't call it that because we use that term for something else already :)
@@ -884,9 +905,13 @@ parenthesized_expr = (sym('(') - expression - ')').setParseAction(head)
 
 unary_op = (p.oneOf(' '.join(functions.unary_operators.keys())) - expression).setParseAction(mkUnOp)
 
-if_then_else = (kw('if') - expression -
+if_then_else = (kw('if') + expression +
                 kw('then') - expression -
                 kw('else') - expression).setParseAction(doapply(Condition))
+
+list_comprehension = (sym('[') + expression + kw('for') - variable - kw('in') -
+    expression - p.Optional(kw('if') - expression) - sym(']')).setParseAction(doapply(ListComprehension))
+
 
 # We don't allow space-application here
 # Now our grammar is becoming very dirty and hackish
@@ -898,6 +923,7 @@ atom = (tuple
         | dq_string
         | sq_string
         | boolean
+        | list_comprehension
         | list_
         | null
         | unary_op
