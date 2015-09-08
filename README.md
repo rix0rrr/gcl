@@ -97,6 +97,10 @@ result of that expression is the result of parsing that file (which will be
 parsed as a tuple using the default environment). Relative filenames are
 resolved with respect to the _including_ file.
 
+Lists can be manipulated using list comprehensions:
+
+    [ x * 2 for x in [1, 2, 3, 4, 5] if x % 2 == 0 ]
+
 
 Tuple composition
 -----------------
