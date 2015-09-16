@@ -97,6 +97,12 @@ result of that expression is the result of parsing that file (which will be
 parsed as a tuple using the default environment). Relative filenames are
 resolved with respect to the _including_ file.
 
+Expressions can also include conditions, using the `if` statement:
+
+    allow_test_commands = if stage == 'alpha' then true else false;
+    
+    # Of course, since these are booleans, the above could also be written as:
+    allow_test_commands = stage == 'alpha';
 
 Tuple composition
 -----------------
