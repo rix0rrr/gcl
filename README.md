@@ -188,14 +188,14 @@ Competition
 
 * JSON: already mentioned above. Not so nice to write, and because of lack of
   expressive power encourages copy/paste jobs all over the place.
-* [https://github.com/toml-lang/toml](TOML): simple and obvious. Doesn't seem
+* [TOML](https://github.com/toml-lang/toml): simple and obvious. Doesn't seem
   to allow abstraction and reuse though.
-* [https://github.com/vstakhov/libucl](UCL): looks and feels a lot like GCL,
+* [UCL](https://github.com/vstakhov/libucl): looks and feels a lot like GCL,
   but the difference with GCL is that in typing `section { }`, in UCL the
   _interpreter_ gives meaning to the identifier `section`, while in GCL the
   model itself gives meaning to `section`. Also, the macro language doesn't
   look so nice to me.
-* [http://nixos.org/nix/manual/](Nix language): subconsciously, GCL has been
+* [Nix language](http://nixos.org/nix/manual/): subconsciously, GCL has been
   modeled a lot after Nix, with its laziness and syntax. Nix' purpose is
   similar (declaring a potentially huge model that's lazily evaluated), though
   its application area is different. Nix uses explicit argument declaration and
