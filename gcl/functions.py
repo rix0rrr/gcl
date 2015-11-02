@@ -1,6 +1,5 @@
 """GCL standard library functions."""
 
-import string
 from os import path
 import gcl
 
@@ -63,10 +62,15 @@ class EnvironmentFunction(object):
     return self.fn(*args, **kwargs)
 
 
+def str_join(lst, sep=' '):
+  """Behaves like string.join from Python 2."""
+  return sep.join(lst)
+
+
 builtin_functions = {
     'eager': eager,
     'path_join': path.join,
-    'join': string.join,
+    'join': str_join,
     'fmt': EnvironmentFunction(fmt)
     }
 
