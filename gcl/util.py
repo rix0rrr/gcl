@@ -56,8 +56,8 @@ def to_python(value, seen=None):
   if isinstance(value, gcl.Tuple):
     if value.ident in seen:
       raise RecursionException('to_python: infinite recursion while evaluating %r' % value)
-    seen.add(value.ident)
-    return {k: to_python(value[k], seen=seen) for k in value.keys()}
+    new_seen = seen.union([value.ident])
+    return {k: to_python(value[k], seen=new_seen) for k in value.keys()}
   if isinstance(value, dict):
     return {k: to_python(value[k], seen=seen) for k in value.keys()}
   if isinstance(value, list):
