@@ -1,5 +1,6 @@
 """GCL standard library functions."""
 
+import string
 from os import path
 import gcl
 
@@ -65,6 +66,7 @@ class EnvironmentFunction(object):
 builtin_functions = {
     'eager': eager,
     'path_join': path.join,
+    'join': string.join,
     'fmt': EnvironmentFunction(fmt)
     }
 

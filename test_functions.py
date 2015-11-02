@@ -32,3 +32,9 @@ class TestStringInterpolation(unittest.TestCase):
     y = fmt 'Hi {things.foo}'
     """)
     self.assertEquals('Hi FOO', x['y'])
+
+  def testJoin(self):
+    x = gcl.loads("""
+    things = join(['a', 'b', 'c']);
+    """)
+    self.assertEquals('a b c', x['things'])
