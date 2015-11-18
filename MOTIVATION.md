@@ -8,7 +8,7 @@ writing JSON by hand.
 
 The goal of GCL is to _reduce repetition_ in a complex JSON configuration.
 However, in trying to tame that complexity, we have had to introduce _some_
-syntactical and cognitive overhead. This means that if you config is tiny, the
+syntactical and cognitive overhead. This means that if your config is tiny, the
 fancy features of GCL may not be a win in your particular situation. Of course,
 you can still just use it as a less-noisy, more friendly-to-type JSON variant
 :).
@@ -32,8 +32,8 @@ The advantages that JSON has are _ubiquity_ and _sufficient_ expressive power.
 Not necessarily _great_ expressive power, but enough to get by.
 
 In this document, I'll hope to sell you on the fact that GCL is equally good,
-or better. Given that it's available in you environment, obviously, which right
-now means Python and some shell tools.
+or better. (Supposing availability in your environment, obviously, which right
+now means Python and some shell tools)
 
 ## Readability/writability
 
@@ -81,7 +81,7 @@ the syntax highlighting you can find at
 
 ### Comments
 
-In a complex configuration, you'd more likely that not want to add comments
+In a complex configuration, you're more likely that not wanting to add comments
 telling the people after you why things are the way they are. JSON has not been
 designed for this, and there is no way to add comments to your JSON
 configuration file.
@@ -321,7 +321,7 @@ expression (either in the tuple itself or one of the enclosing tuples). _New
 keys_ that are mixed in later on will be ignored.
 
 This means, slightly annoyingly but very safe, that you have to declare all
-keys you're going to be expecting or using from your 'sibling' tuples. \
+keys you're going to be expecting or using from your 'sibling' tuples.
 
 So you've already seen this pattern, a reusable tuple expecting a parameter:
 
