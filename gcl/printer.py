@@ -98,6 +98,9 @@ class PrettyPrintWalker(util.ExpressionWalker):
   def visitScalar(self, key_path, value):
     if self.errors_only:
       return
+    if not key_path:
+      self.table.add(util.Cell(repr(value)))
+      return
     if not self._printableKey(key_path[-1]):
       return
 
