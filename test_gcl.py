@@ -274,7 +274,6 @@ class TestApplication(unittest.TestCase):
     self.assertEquals(3, x['y'])
     self.assertEquals(3, x['z'])
 
-
   def testApplyingVariableToString(self):
     x = parse_tuple("""
     tuple = { x = 3 };
@@ -585,6 +584,29 @@ class TestIncludes(unittest.TestCase):
   def testIncludeWithApplyPrecedence(self):
     x = self.parse('/home/me/file', 'inc = include "other_file.gcl" { foo = 3 };')
     self.assertEquals(3, x['inc']['foo']);
+
+
+class TestErrorMessages(unittest.TestCase):
+  def testKeyExceptionContainsInfo(self):
+    x = parse('{ x = { boo = "bah" }}')
+    try:
+      print x['foo']
+    except Exception, e:
+      self.assertTrue('boo' in str(e))
+
+  def testKeyExceptionContainsInfoForCompositeTuple(self):
+    x = parse('{ x = { boo = "bah" } { bie = "bye" } }')
+    try:
+      print x['foo']
+    except Exception, e:
+      self.assertTrue('boo' in str(e))
+
+  def testKeyExceptionContainsInfoForBaseReferenceInCompositeTuple(self):
+    x = parse('{ x = { boo = "bah" } { foo = base.bye } }')
+    try:
+      print x['foo']
+    except Exception, e:
+      self.assertTrue('boo' in str(e))
 
 
 class TestRuntimeCaps(unittest.TestCase):

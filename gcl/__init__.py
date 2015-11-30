@@ -512,7 +512,7 @@ class Tuple(TupleLike):
 
   def get_thunk(self, k):
     if k not in self.__items:
-      raise EvaluationError('Unknown key: %r' % k)
+      raise EvaluationError('Unknown key: %r in tuple %r' % (k, self))
     x = self.__items[k]
     # Don't evaluate in this env but parent env
     if isinstance(x, Inherit):
@@ -553,7 +553,7 @@ class CompositeBaseTuple(object):
           return thunk
         if not isinstance(thunk, Void):
           return eval(thunk, env)
-    raise EvaluationError('Unknown key in base: %r' % key)
+    raise EvaluationError('Unknown key: base.%r in composite tuple:' % (key, self.composite))
 
 
 def env_of(tup, self):
@@ -617,7 +617,7 @@ class CompositeTuple(Tuple):
           return thunk  # Not a thunk but a literal then
         if not isinstance(thunk, Void):
           return eval(thunk, env)
-    raise EvaluationError('Unknown key: %r' % key)
+    raise EvaluationError('Unknown key: %r in composite tuple %r' % (key, self))
 
   def __repr__(self):
     return ' '.join(repr(t) for t in self.tuples)
