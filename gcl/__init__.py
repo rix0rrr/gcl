@@ -10,16 +10,15 @@ from os import path
 import pyparsing as p
 
 from . import functions
+from . import exceptions
+from . import schema
 
 __version__ = '0.5.3'
 
 
-class GCLError(RuntimeError):
-  pass
-
-
-class ParseError(GCLError):
-  pass
+# Namespace copy for backwards compatibility
+GCLError = exceptions.GCLError
+ParseError = exceptions.ParseError
 
 
 class EvaluationError(GCLError):
@@ -253,6 +252,9 @@ class SourceLocation(object):
   def error_in_context(self, msg):
     msg = '%s:%d: %s in \'%s\'' % (self.filename, self.lineno, msg, self.line)
     return msg
+
+  def __str__(self):
+    return self.string[:self.offset] + '|' + self.string[self.offset:]
 
 
 class Environment(object):
@@ -1005,3 +1007,10 @@ def load(filename, loader=None, implicit_tuple=True, env=None):
                  implicit_tuple=implicit_tuple,
                  env=env)
 
+
+def is_tuple(x):
+  return hasattr(x, 'keys')
+
+
+def is_list(x):
+  return isinstance(x, (list, List))

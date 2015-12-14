@@ -3,9 +3,6 @@ from os import path
 
 import gcl
 
-def parse_ast(s, implicit_tuple=False):
-  return gcl.reads(s, implicit_tuple=implicit_tuple)
-
 def parse(s, env=None, implicit_tuple=False, loader=None):
   return (gcl.reads(s, implicit_tuple=implicit_tuple, loader=loader)
              .eval(gcl.default_env.extend(env)))
