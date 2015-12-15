@@ -63,6 +63,15 @@ def find_relative(current_dir, rel_path):
   else:
     return path.normpath(path.join(current_dir, rel_path))
 
+def pafac(fn):
+  """Make a function that accepts a parsed string and a SourceLocation into a function that can be
+  passed into a setParseAction.
+  """
+  def wrapped(s, loc, x):
+    return fn(*(x + [SourceLocation(s, loc)]))
+  return wrapped
+
+#----------------------------------------------------------------------
 
 class Cache(object):
   def __init__(self):
@@ -342,7 +351,7 @@ class Inherit(Thunk):
 
 
 def mkInherits(tokens):
-  return [(t, Inherit()) for t in list(tokens)]
+  return [UnboundTupleMember(t, Inherit()) for t in list(tokens)]
 
 
 class Constant(Thunk):
@@ -412,6 +421,17 @@ class ArgList(Thunk):
     return '(%s)' % ', '.join(repr(x) for x in self.values)
 
 
+class UnboundTupleMember(object):
+  """Model class for parsed tuple members.
+
+  They have a name, an expression value and an optional schema.
+  """
+  def __init__(self, name, value):
+    self.name = name
+    self.value = value
+    self.schema = schema
+
+
 class UnboundTuple(Thunk):
   """Unbound tuple.
 
@@ -419,13 +439,22 @@ class UnboundTuple(Thunk):
   we return a (lazy) Tuple object that only evaluates the elements when they're
   requested.
   """
-  def __init__(self, kv_pairs):
+  def __init__(self, members):
     self.ident = obj_ident()
-    self.items = dict(kv_pairs)
+    self.members = {m.name: m for m in members}
+    self.items = {m.name: m.value for m in members}
     self._cache = Cache()
 
   def eval(self, env):
-    return self._cache.get(env.ident, lambda: Tuple(self.items, env))
+    t = self._cache.get(env.ident, lambda: Tuple(self.items, env))
+
+    # This is where we interpret the schema from the model (as opposed to an externally imposed
+    # schema). If we did, immediately validate as well.
+    # FIXME
+    #if '@type' in t:
+      #t.add_schema(schema.from_spec(t['@type']))
+      #t.validate_self()
+    return t
 
   def __repr__(self):
     return ('{' +
@@ -445,10 +474,17 @@ class TupleLike(object):
     pass
 
   def __contains__(self):
-    return
+    pass
 
   def __iter__(self):
-    return
+    pass
+
+  def is_bound(self, name):
+    """Return whether the value exists and is bound."""
+    pass
+
+  def has_key(self, name):
+    return name in self
 
 
 class Tuple(TupleLike):
@@ -532,6 +568,9 @@ class Tuple(TupleLike):
     if not isinstance(tup, Tuple):
       tup = Tuple(tup, EmptyEnvironment())
     return CompositeTuple(self.tuples + [tup])
+
+  def is_bound(self, name):
+    return name in self and not isinstance(self.get_thunk(name), Void)
 
   def __repr__(self):
     return '{%s}' % '; '.join(self._render(k) for k in self.keys())
@@ -890,8 +929,8 @@ list_ = bracketedList('[', ']', ',', expression, List)
 # Tuple
 inherit = (kw('inherit') - p.ZeroOrMore(identifier)).setParseAction(mkInherits)
 tuple_member = (inherit
-               | (identifier + ~p.FollowedBy('=')).setParseAction(lambda s, loc, x: (x[0], Void(x[0], SourceLocation(s, loc))))
-               | (identifier - '=' - expression).setParseAction(lambda x: (x[0], x[2]))
+               | (identifier + ~p.FollowedBy('=')).setParseAction(lambda s, loc, x: UnboundTupleMember(x[0], Void(x[0], SourceLocation(s, loc))))
+               | (identifier - '=' - expression).setParseAction(lambda x: UnboundTupleMember(x[0], x[2]))
                )
 tuple_members = listMembers(';', tuple_member, UnboundTuple)
 tuple = bracketedList('{', '}', ';', tuple_member, UnboundTuple)
