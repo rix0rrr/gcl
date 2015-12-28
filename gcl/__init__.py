@@ -6,6 +6,7 @@ See README.md for an explanation of GCL and concepts.
 
 import functools
 from os import path
+import sys
 
 import pyparsing as p
 
@@ -19,6 +20,7 @@ __version__ = '0.5.3'
 # Namespace copy for backwards compatibility
 GCLError = exceptions.GCLError
 ParseError = exceptions.ParseError
+SchemaError = exceptions.SchemaError
 
 
 class EvaluationError(GCLError):
@@ -68,7 +70,12 @@ def pafac(fn):
   passed into a setParseAction.
   """
   def wrapped(s, loc, x):
-    return fn(*(x + [SourceLocation(s, loc)]))
+    try:
+      return fn(SourceLocation(s, loc), *list(x))
+    except TypeError, e:
+      # pyparsing will catch TypeErrors to "detect" our arity, but I don't want to swallow errors
+      # here.  Convert to some other exception type.
+      raise RuntimeError, sys.exc_info()[1], sys.exc_info()[2]
   return wrapped
 
 #----------------------------------------------------------------------
@@ -108,7 +115,7 @@ def obj_ident():
 eval_cache = Cache()
 activation_stack = {}
 
-def eval(thunk, env):
+def eval(thunk, env, schema=None):
   """Evaluate a thunk in an environment.
 
   Will defer the actual evaluation to the thunk itself, but adds two things:
@@ -122,7 +129,13 @@ def eval(thunk, env):
   if key in activation_stack:
     raise EvaluationError('Reference cycle')
   with Activation(activation_stack, key):
-    return eval_cache.get(key, lambda: thunk.eval(env))
+    val = eval_cache.get(key, lambda: thunk.eval(env))
+    if schema:
+      schema.validate(val)
+      setter = getattr(val, 'add_schema', None)
+      if setter:
+        setter(schema)
+    return val
 
 
 class OnDiskFiles(object):
@@ -265,6 +278,10 @@ class SourceLocation(object):
   def __str__(self):
     return self.string[:self.offset] + '|' + self.string[self.offset:]
 
+  @staticmethod
+  def empty():
+    return SourceLocation('', 0)
+
 
 class Environment(object):
   """Binding environment, inherits from another Environment."""
@@ -351,7 +368,7 @@ class Inherit(Thunk):
 
 
 def mkInherits(tokens):
-  return [UnboundTupleMember(t, Inherit()) for t in list(tokens)]
+  return [TupleMemberNode(SourceLocation('', 0), t, NoSchema(), Inherit()) for t in list(tokens)]
 
 
 class Constant(Thunk):
@@ -421,45 +438,62 @@ class ArgList(Thunk):
     return '(%s)' % ', '.join(repr(x) for x in self.values)
 
 
-class UnboundTupleMember(object):
-  """Model class for parsed tuple members.
+class TupleMemberNode(object):
+  """AST node for tuple members.
 
   They have a name, an expression value and an optional schema.
   """
-  def __init__(self, name, value):
+  def __init__(self, sloc, name, schema, value=None):
+    self.sloc = sloc
     self.name = name
     self.value = value
-    self.schema = schema
+    self.member_schema = schema
+
+  def __repr__(self):
+    schema_repr = ': %r' % self.member_schema if not isinstance(self.member_schema, NoSchema) else ''
+    return '%s%s = %r' % (self.name, schema_repr, self.value)
 
 
-class UnboundTuple(Thunk):
-  """Unbound tuple.
+class TupleNode(Thunk):
+  """AST node for tuple
 
-  When evaluating, the tuple doesn't actually evaluate its children. Instead,
-  we return a (lazy) Tuple object that only evaluates the elements when they're
-  requested.
+  When evaluating, the tuple doesn't actually evaluate its children. Instead, we return a (lazy)
+  Tuple object that only evaluates the elements when they're requested.
   """
   def __init__(self, members):
     self.ident = obj_ident()
-    self.members = {m.name: m for m in members}
-    self.items = {m.name: m.value for m in members}
+    self.members = members
+    self.member = {m.name: m for m in self.members}
     self._cache = Cache()
 
   def eval(self, env):
-    t = self._cache.get(env.ident, lambda: Tuple(self.items, env))
+    return self._cache.get(env.ident, lambda: self._make_tuple(env))
 
-    # This is where we interpret the schema from the model (as opposed to an externally imposed
-    # schema). If we did, immediately validate as well.
-    # FIXME
-    #if '@type' in t:
-      #t.add_schema(schema.from_spec(t['@type']))
-      #t.validate_self()
+  def _make_tuple(self, env):
+    """Instantiate the Tuple based on this TupleNode."""
+    t = Tuple(self, env)
+    # A tuple is its own spec (for required fields)
+    schema_spec_from_tuple(t).validate(t)
     return t
 
   def __repr__(self):
     return ('{' +
-            '; '.join('%s = %r' % (key, value) for key, value in self.items.items()) +
+            '; '.join(repr(m) for m in self.members) +
             '}')
+
+
+class RuntimeTupleNode(TupleNode):
+  """Fake AST node.
+
+  Tuples require a reference to a TupleNode-like object. However, sometimes we want to convert
+  dictionaries to Tuple objects at runtime, so we need to invent a tuple-like object.
+  """
+  def __init__(self, dct):
+    self.members = [TupleMemberNode(SourceLocation.empty(), key, schema=schema.AnySchema(), value=value) for key, value in dct.items()]
+
+
+def dict2tuple(dct):
+    return Tuple(RuntimeTupleNode(dct), EmptyEnvironment())
 
 
 class TupleLike(object):
@@ -496,11 +530,14 @@ class Tuple(TupleLike):
   The parent_env is the environment in which we do lookups for values that are
   not in this Tuple (the lexically enclosing scope).
   """
-  def __init__(self, items, parent_env):
+  def __init__(self, tuplenode, parent_env):
     self.ident = obj_ident()
-    self.__items = items
-    self._parent_env = parent_env
-    self._env_cache = Cache()  # Env cache so eval caching works more effectively
+    self.__tuplenode = tuplenode
+    self.__parent_env = parent_env
+    # This mapping is for backwards compatibility. In principle, the TupleNode owns the members
+    self.__items = {m.name: m.value for m in tuplenode.members}
+    self.__env_cache = Cache()  # Env cache so eval caching works more effectively
+    self.tuple_schema = schema.AnySchema()
 
   def dict(self):
     return self.__items
@@ -519,7 +556,7 @@ class Tuple(TupleLike):
     # Check if this is a Thunk that needs to be lazily evaluated before we
     # return it.
     if isinstance(x, Thunk):
-      return eval(x, self.env(self))
+      return eval(x, self.env(self), self.tuple_schema.get_subschema(key))
 
     return x
 
@@ -530,9 +567,9 @@ class Tuple(TupleLike):
     """Return an environment that will look up in current_scope for keys in
     this tuple, and the parent env otherwise.
     """
-    return self._env_cache.get(
+    return self.__env_cache.get(
             current_scope.ident,
-            lambda: Environment(current_scope, self._parent_env, names=self.keys()))
+            lambda: Environment(current_scope, self.__parent_env, names=self.keys()))
 
   def keys(self):
     return self.__items.keys()
@@ -555,7 +592,7 @@ class Tuple(TupleLike):
     # Don't evaluate in this env but parent env
     if isinstance(x, Inherit):
       # Change an unbound Inherit into a bound Inherit
-      return Inherit(k, self._parent_env)
+      return Inherit(k, self.__parent_env)
     return x
 
   def _render(self, key):
@@ -566,11 +603,26 @@ class Tuple(TupleLike):
 
   def compose(self, tup):
     if not isinstance(tup, Tuple):
-      tup = Tuple(tup, EmptyEnvironment())
+      tup = dict2tuple(tup)
     return CompositeTuple(self.tuples + [tup])
 
   def is_bound(self, name):
     return name in self and not isinstance(self.get_thunk(name), Void)
+
+  def add_schema(self, schem):
+    """Add a tuple schema to this object (externally imposed)"""
+    self.tuple_schema = schema.AndSchema.make(self.tuple_schema, schem)
+
+  def get_schema_spec(self, key):
+    """Return the evaluated schema expression from a subkey."""
+    member_node = self.__tuplenode.member.get(key, None)
+    if not member_node:
+      return schema.AnySchema()
+    return member_node.member_schema.eval(self.__parent_env)
+
+  def get_required_fields(self):
+    """Return the names of fields that are required according to the schema."""
+    return [m.name for m in self.__tuplenode.members if m.member_schema.required]
 
   def __repr__(self):
     return '{%s}' % '; '.join(self._render(k) for k in self.keys())
@@ -620,6 +672,7 @@ class CompositeTuple(Tuple):
     self._tuples = tuples
     self._keys = functools.reduce(lambda s, t: s.union(t.keys()), self._tuples, set())
     self._makeLookupList()
+    self.tuple_schema = schema.AnySchema()
 
   def _makeLookupList(self):
     # Count index from the back because we're going to reverse
@@ -647,7 +700,7 @@ class CompositeTuple(Tuple):
 
   def compose(self, tup):
     if not isinstance(tup, Tuple):
-      tup = Tuple(tup, EmptyEnvironment())
+      tup = dict2tuple(tup)
     return CompositeTuple(self.tuples + [tup])
 
   def __getitem__(self, key):
@@ -657,11 +710,16 @@ class CompositeTuple(Tuple):
         if not isinstance(thunk, Thunk):
           return thunk  # Not a thunk but a literal then
         if not isinstance(thunk, Void):
+          # FIXME: Get appropriate schema here
           return eval(thunk, env)
     raise EvaluationError('Unknown key: %r in composite tuple %r' % (key, self))
 
   def __repr__(self):
     return ' '.join(repr(t) for t in self.tuples)
+
+  def add_schema(self, schem):
+    """Add a tuple schema to this object (externally imposed)"""
+    self.tuple_schema = schema.AndSchema.make(self.tuple_schema, schem)
 
 
 class Application(Thunk):
@@ -879,13 +937,104 @@ class Include(Thunk):
   def __repr__(self):
     return 'include(%r)' % self.file_ref
 
+#----------------------------------------------------------------------
+#  Schema AST model
+#
+
+class NoSchema(object):
+  """For values without a schema."""
+  def __init__(self):
+    self.required = False
+
+  def eval(self, env):
+    return schema.AnySchema()
+
+
+class MemberSchemaNode(object):
+  """AST node for member schema definitions. Can be evaluated to produce runtime Schema classes.
+
+  NOTE: this class does a little funky logic. Because we want to be able to write:
+
+      var : int;
+
+  Instead of 'var : "int"', some words are special-cased. However, we also want to be able to parse
+  things of the form:
+
+      tuple_with_int_foo : { foo : int };
+      tuple_of_type : SomeObject;
+
+  Which requires us to parse the grammar 'expression+schema_literals' (as opposed to just the
+  grammar 'expression'), which I don't really want to double-define. Instead, we'll just pretend
+  certain variable names like 'int' and 'string' refer to global objects that can't be rebound (in
+  effect, they resolve to their variable name).
+
+  The schema evaluation object model looks like this:
+
+
+      TupleNode <>------> TupleMemberNode <>---------> MemberSchemaNode
+         ^                                                   |
+         | eval()                                            | eval()
+         |                                                   v
+      Tuple                                           schema.Schema() +validate()
+                                                             /\
+                                                        TupleSchema
+
+
+  """
+  def __init__(self, sloc, required, expr):
+    self.sloc = sloc
+    self.required = required
+    self.expr = expr
+
+  def eval(self, env):
+    if isinstance(self.expr, Var) and self.expr.name in schema.SCALAR_TYPES.keys():
+      # Resolve to self
+      value = self.expr.name
+    else:
+      value = eval(self.expr, env)
+
+    if is_tuple(value):
+      # If it so happens that the thing is a tuple, we need to pass in the data in a bit of a
+      # different way into the schema factory (in a dictionary with {fields, required} keys).
+      return schema_spec_from_tuple(value)
+
+    return schema.from_spec(value)
+
+  def __repr__(self):
+    return ' '.join((['required'] if self.required else []) +
+                    ([repr(self.expr)] if not isinstance(self.expr, AnySchemaExpr) else []))
+
+
+class TupleSchemaAccess(object):
+  """A class that behaves like a dictionary and returns member schemas from a tuple (recursively)."""
+  def __init__(self, tuple):
+    self.tuple = tuple
+
+  def __getitem__(self, key):
+    return self.tuple.get_schema_spec(key)
+
+  def __repr__(self):
+    return 'TupleSchemaAccess(%r)' % self.tuple
+
+
+class AnySchemaExpr(object):
+  def eval(self, env):
+    return schema.AnySchema()
+
+
+def schema_spec_from_tuple(tup):
+  if hasattr(tup, 'get_schema_spec'):
+    # Tuples have a TupleSchema field that contains a model of the schema
+    return schema.from_spec({'fields': TupleSchemaAccess(tup), 'required': tup.get_required_fields()})
+  return schema.AnySchema()
+
 
 #----------------------------------------------------------------------
 #  Grammar
 #
 
 def sym(sym):
-  return p.Literal(sym).suppress()
+  return p.Suppress(sym)
 
 
 def kw(kw):
@@ -909,6 +1058,8 @@ def bracketedList(l, r, sep, expr, what):
 keywords = ['and', 'or', 'not', 'if', 'then', 'else', 'include', 'inherit', 'null', 'true', 'false',
     'for', 'in']
 
+scalar_schemas = schema.SCALAR_TYPES.keys()
+
 expression = p.Forward()
 
 comment = '#' + p.restOfLine
@@ -928,12 +1079,15 @@ list_ = bracketedList('[', ']', ',', expression, List)
 
 # Tuple
 inherit = (kw('inherit') - p.ZeroOrMore(identifier)).setParseAction(mkInherits)
+schema_spec = (p.Optional(p.Keyword('required').setParseAction(lambda: True), default=False)
+               - p.Optional(expression, default=AnySchemaExpr())).setParseAction(pafac(MemberSchemaNode))
+optional_schema = p.Optional(p.Suppress(':') - schema_spec, default=NoSchema())
 tuple_member = (inherit
-               | (identifier + ~p.FollowedBy('=')).setParseAction(lambda s, loc, x: UnboundTupleMember(x[0], Void(x[0], SourceLocation(s, loc))))
-               | (identifier - '=' - expression).setParseAction(lambda x: UnboundTupleMember(x[0], x[2]))
+               | (identifier + optional_schema + ~p.FollowedBy('=')).setParseAction(lambda s, loc, x: TupleMemberNode(SourceLocation(s, loc), x[0], x[1], Void(x[0], SourceLocation(s, loc))))
+               | (identifier - optional_schema - p.Suppress('=') - expression).setParseAction(pafac(TupleMemberNode))
                )
-tuple_members = listMembers(';', tuple_member, UnboundTuple)
-tuple = bracketedList('{', '}', ';', tuple_member, UnboundTuple)
+tuple_members = listMembers(';', tuple_member, TupleNode)
+tuple = bracketedList('{', '}', ';', tuple_member, TupleNode)
 
 # Variable (can't be any of the keywords, which may have lower matching priority)
 variable = ~p.Or([p.Keyword(k) for k in keywords]) + identifier.copy().setParseAction(mkVar)
@@ -981,7 +1135,7 @@ atom = (tuple
 applic1 = (atom - p.ZeroOrMore(arg_list)).setParseAction(mkApplications)
 
 # Dereferencing of an expression (obj.bar)
-deref << (applic1 - p.ZeroOrMore(p.Literal('.').suppress() - identifier)).setParseAction(mkDerefs)
+deref << (applic1 - p.ZeroOrMore(p.Suppress('.') - identifier)).setParseAction(mkDerefs)
 
 # Juxtaposition function application (fn arg), must be 1-arg every time
 applic2 = (deref - p.ZeroOrMore(deref)).setParseAction(mkApplications)
