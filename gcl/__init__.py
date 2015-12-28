@@ -68,8 +68,14 @@ def pafac(fn):
   passed into a setParseAction.
   """
   def wrapped(s, loc, x):
-    return fn(*(x + [SourceLocation(s, loc)]))
+    try:
+      return fn(SourceLocation(s, loc), *list(x))
+    except TypeError, e:
+      # pyparsing will catch TypeErrors to "detect" our arity, but I don't want to swallow errors
+      # here.  Convert to some other exception type.
+      raise RuntimeError, sys.exc_info()[1], sys.exc_info()[2]
   return wrapped
+
 
 #----------------------------------------------------------------------
 
@@ -439,7 +445,7 @@ class UnboundTuple(Thunk):
   we return a (lazy) Tuple object that only evaluates the elements when they're
   requested.
   """
-  def __init__(self, members):
+  def __init__(self, sloc, members):
     self.ident = obj_ident()
     self.members = {m.name: m for m in members}
     self.items = {m.name: m.value for m in members}
@@ -932,8 +938,8 @@ tuple_member = (inherit
                | (identifier + ~p.FollowedBy('=')).setParseAction(lambda s, loc, x: UnboundTupleMember(x[0], Void(x[0], SourceLocation(s, loc))))
                | (identifier - '=' - expression).setParseAction(lambda x: UnboundTupleMember(x[0], x[2]))
                )
-tuple_members = listMembers(';', tuple_member, UnboundTuple)
-tuple = bracketedList('{', '}', ';', tuple_member, UnboundTuple)
+tuple_members = listMembers(';', tuple_member, pafac(UnboundTuple))
+tuple = bracketedList('{', '}', ';', tuple_member, pafac(UnboundTuple))
 
 # Variable (can't be any of the keywords, which may have lower matching priority)
 variable = ~p.Or([p.Keyword(k) for k in keywords]) + identifier.copy().setParseAction(mkVar)
