@@ -1016,7 +1016,7 @@ def reads(s, filename=None, loader=None, implicit_tuple=True):
   try:
     the_context.filename = filename or '<input>'
     the_context.loader = loader or default_loader
-    return (start_tuple if implicit_tuple else start).parseString(s, parseAll=True)[0]
+    return (start_tuple if implicit_tuple else start).parseWithTabs().parseString(s, parseAll=True)[0]
   except (p.ParseException, p.ParseSyntaxException) as e:
     msg = '%s:%d: %s\n%s\n%s^-- here' % (the_context.filename, e.lineno, e.msg, e.line, ' ' * (e.col - 1))
     raise ParseError(msg)
