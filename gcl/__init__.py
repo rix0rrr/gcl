@@ -5,13 +5,15 @@ See README.md for an explanation of GCL and concepts.
 """
 
 import functools
+import itertools
 from os import path
+import sys
+import traceback
 
 import pyparsing as p
 
 from . import functions
 from . import exceptions
-from . import schema
 
 __version__ = '0.5.3'
 
@@ -57,6 +59,10 @@ def mkBool(s):
 def drop(x):
   return []
 
+def vmap(fn, dct):
+  """Map a function across the values of a dict."""
+  return {k: fn(v) for k, v in dct.items()}
+
 def find_relative(current_dir, rel_path):
   if rel_path.startswith('/'):
     return rel_path
@@ -70,10 +76,19 @@ def pafac(fn):
   def wrapped(s, loc, x):
     try:
       return fn(SourceLocation(s, loc), *list(x))
-    except TypeError, e:
+    except TypeError as e:
       # pyparsing will catch TypeErrors to "detect" our arity, but I don't want to swallow errors
-      # here.  Convert to some other exception type.
-      raise RuntimeError, sys.exc_info()[1], sys.exc_info()[2]
+      # here. Convert to some other exception type. I'd LOVE to keep the stack trace here, but there
+      # is no one syntax that is not a syntax error in either Python 2 or Python 3. So in Python 2
+      # we don't keep the stack trace, unfortunately.
+
+      if hasattr(e, 'with_traceback'):
+        # Python 3
+        raise RuntimeError(str(e)).with_traceback(sys.exc_info()[2])
+      else:
+        # Python 2, put the original trace inside the error message. This exception is never
+        # supposed to happen anyway, it is just for debugging.
+        raise RuntimeError(traceback.format_exc())
   return wrapped
 
 
@@ -435,7 +450,6 @@ class UnboundTupleMember(object):
   def __init__(self, name, value):
     self.name = name
     self.value = value
-    self.schema = schema
 
 
 class UnboundTuple(Thunk):
@@ -445,22 +459,18 @@ class UnboundTuple(Thunk):
   we return a (lazy) Tuple object that only evaluates the elements when they're
   requested.
   """
-  def __init__(self, sloc, members):
+  def __init__(self, sloc, *members):
+    duplicates = [name for name, ns in itertools.groupby(sorted(m.name for m in members)) if len(list(ns)) > 1]
+    if duplicates:
+      raise ParseError('Key %s occurs more than once in tuple at %s' % (', '.join(duplicates), sloc))
+
     self.ident = obj_ident()
     self.members = {m.name: m for m in members}
     self.items = {m.name: m.value for m in members}
     self._cache = Cache()
 
   def eval(self, env):
-    t = self._cache.get(env.ident, lambda: Tuple(self.items, env))
-
-    # This is where we interpret the schema from the model (as opposed to an externally imposed
-    # schema). If we did, immediately validate as well.
-    # FIXME
-    #if '@type' in t:
-      #t.add_schema(schema.from_spec(t['@type']))
-      #t.validate_self()
-    return t
+    return self._cache.get(env.ident, lambda: Tuple(self.items, env))
 
   def __repr__(self):
     return ('{' +
@@ -900,8 +910,7 @@ def kw(kw):
 
 def listMembers(sep, expr, what):
   return p.Optional(p.delimitedList(expr, sep) -
-                    p.Optional(sep).suppress()).setParseAction(
-                        lambda ts: what(list(ts)))
+                    p.Optional(sep).suppress()).setParseAction(what)
 
 
 def bracketedList(l, r, sep, expr, what):

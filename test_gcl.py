@@ -137,6 +137,10 @@ class TestTuple(unittest.TestCase):
     x = parse('obj.attr', env={ 'obj': { 'attr' : 1 }})
     self.assertEquals(1, x)
 
+  def testDoubleDeclarationIsError(self):
+    with self.assertRaises(gcl.ParseError):
+      parse('{ x = 3; x = 4 }')
+
 
 class TestApplication(unittest.TestCase):
   def setUp(self):
@@ -592,22 +596,22 @@ class TestErrorMessages(unittest.TestCase):
   def testKeyExceptionContainsInfo(self):
     x = parse('{ x = { boo = "bah" }}')
     try:
-      print x['foo']
-    except Exception, e:
+      print(x['foo'])
+    except Exception as e:
       self.assertTrue('boo' in str(e))
 
   def testKeyExceptionContainsInfoForCompositeTuple(self):
     x = parse('{ x = { boo = "bah" } { bie = "bye" } }')
     try:
-      print x['foo']
-    except Exception, e:
+      print(x['foo'])
+    except Exception as e:
       self.assertTrue('boo' in str(e))
 
   def testKeyExceptionContainsInfoForBaseReferenceInCompositeTuple(self):
     x = parse('{ x = { boo = "bah" } { foo = base.bye } }')
     try:
-      print x['foo']
-    except Exception, e:
+      print(x['foo'])
+    except Exception as e:
       self.assertTrue('boo' in str(e))
 
 
