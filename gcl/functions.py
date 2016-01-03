@@ -67,12 +67,19 @@ def str_join(lst, sep=' '):
   return sep.join(lst)
 
 
+def compose_all(tups):
+  """Compose all given tuples together."""
+  return reduce(lambda x, y: x.compose(y), map(gcl.make_tuple, tups), gcl.make_tuple({}))
+
+
 builtin_functions = {
     'eager': eager,
     'path_join': path.join,
     'join': str_join,
     'fmt': EnvironmentFunction(fmt),
-    'sum': sum
+    'sum': sum,
+    'compose_all': compose_all,
+    'sorted': sorted
     }
 
 

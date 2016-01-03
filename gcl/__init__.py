@@ -581,9 +581,7 @@ class Tuple(TupleLike):
       return '%s' % key
 
   def compose(self, tup):
-    if not isinstance(tup, Tuple):
-      tup = Tuple(tup, EmptyEnvironment())
-    return CompositeTuple(self.tuples + [tup])
+    return CompositeTuple(self.tuples + make_tuple(tup).tuples)
 
   def is_bound(self, name):
     return name in self and not isinstance(self.get_thunk(name), Void)
@@ -729,10 +727,8 @@ class Application(Thunk):
       raise EvaluationError('Tuple (%r) can only be applied to one argument, got %r' % (self.left, self.right))
     right = right[0]
 
-    if is_tuple(right):  # Is tuple-like
-      if not isinstance(right, Tuple):  # But not a literal tuple, so a dict
-        right = Tuple(right, EmptyEnvironment())
-      return CompositeTuple(tuple.tuples + right.tuples)
+    if is_tuple(right):
+      return CompositeTuple(tuple.tuples + make_tuple(right).tuples)
 
     if is_str(right):
       return tuple[right]
@@ -1069,6 +1065,13 @@ def load(filename, loader=None, implicit_tuple=True, env=None):
 
 def is_tuple(x):
   return hasattr(x, 'keys')
+
+
+def make_tuple(x):
+  """Turn a dict-like object into a Tuple."""
+  if isinstance(x, Tuple):
+    return x
+  return Tuple(x, EmptyEnvironment())
 
 
 def is_list(x):
