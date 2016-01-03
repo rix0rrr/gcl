@@ -729,7 +729,9 @@ class Application(Thunk):
       raise EvaluationError('Tuple (%r) can only be applied to one argument, got %r' % (self.left, self.right))
     right = right[0]
 
-    if isinstance(right, Tuple):
+    if is_tuple(right):  # Is tuple-like
+      if not isinstance(right, Tuple):  # But not a literal tuple, so a dict
+        right = Tuple(right, EmptyEnvironment())
       return CompositeTuple(tuple.tuples + right.tuples)
 
     if is_str(right):

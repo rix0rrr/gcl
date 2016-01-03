@@ -297,6 +297,15 @@ class TestApplication(unittest.TestCase):
     self.assertEquals('a', x['y'])
     self.assertEquals('b', x['z'])
 
+  def testCompositionWithDict(self):
+    env = {}
+    env['fn'] = lambda arg : {'b': arg}
+    x = parse_tuple('''
+      x = { a = 'a' };
+      y = x (fn 'b');
+    ''', env=gcl.Environment(env))
+    self.assertEquals('b', x['y']['b'])
+
 
 class TestExpressions(unittest.TestCase):
   def testAdd(self):
