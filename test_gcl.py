@@ -332,6 +332,13 @@ class TestExpressions(unittest.TestCase):
         'double': lambda x: x * 2
       }))
 
+  def testListComprehensionOverTuple(self):
+    x = parse('''{
+      x = { a = 1; b = 2; c = 3 };
+      y = sum([x(k) for k in x ]);
+    }''')
+    self.assertEquals(6, x['y'])
+
 
 class TestScoping(unittest.TestCase):
   def testOuterValueAvailableInInnerOne(self):

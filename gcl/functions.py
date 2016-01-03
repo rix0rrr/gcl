@@ -71,7 +71,8 @@ builtin_functions = {
     'eager': eager,
     'path_join': path.join,
     'join': str_join,
-    'fmt': EnvironmentFunction(fmt)
+    'fmt': EnvironmentFunction(fmt),
+    'sum': sum
     }
 
 

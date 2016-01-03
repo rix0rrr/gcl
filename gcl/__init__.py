@@ -591,6 +591,9 @@ class Tuple(TupleLike):
   def __repr__(self):
     return '{%s}' % '; '.join(self._render(k) for k in self.keys())
 
+  def __iter__(self):
+    return iter(self.keys())
+
 
 class CompositeBaseTuple(object):
   """A tuple-like object that will be used to resolve 'base' to.
