@@ -29,6 +29,9 @@ class TestBasics(unittest.TestCase):
   def testDoubleQuotedString(self):
     self.assertEquals("foo", parse('"foo"'))
 
+  def testEscapedString(self):
+    self.assertEquals("Master \"Bob\" Foo", parse('"Master \\"Bob\\" Foo"'))
+
   def testNull(self):
     self.assertEquals(None, parse('null'))
 
