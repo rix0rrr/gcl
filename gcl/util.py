@@ -1,11 +1,17 @@
-"""GCL utility functions."""
+"""GCL utility functions.
+
+These utility functions are intended for GCL CONSUMERS.
+"""
+from __future__ import absolute_import
+
+import json
 
 import hashlib
-import json
 import sys
 from os import path
 
-import gcl
+from . import framework
+from . import exceptions
 
 
 class RecursionException(RuntimeError):
@@ -39,7 +45,7 @@ class ExpressionWalker(object):
 def get_or_error(tuple, key):
   try:
     return tuple[key]
-  except gcl.EvaluationError as e:
+  except exceptions.EvaluationError as e:
     return e
 
 
@@ -53,7 +59,7 @@ def to_python(value, seen=None):
   Does recursion detection, failing when that happens.
   """
   seen = seen or set()
-  if isinstance(value, gcl.Tuple):
+  if isinstance(value, framework.TupleLike):
     if value.ident in seen:
       raise RecursionException('to_python: infinite recursion while evaluating %r' % value)
     new_seen = seen.union([value.ident])
@@ -95,7 +101,7 @@ def walk(value, walker, path=None, seen=None):
     return
 
   # Scalar
-  if not isinstance(value, gcl.TupleLike):
+  if not isinstance(value, framework.TupleLike):
     walker.visitScalar(path, value)
     return
 
@@ -117,7 +123,7 @@ def walk(value, walker, path=None, seen=None):
 
 
 def _digest(value, digest):
-  if isinstance(value, gcl.TupleLike):
+  if isinstance(value, framework.TupleLike):
     digest.update('T')
     for k in value.keys():
       v = get_or_error(value, k)
@@ -220,8 +226,32 @@ class ConsoleTable(object):
       fobj.write('\n')
 
 
+def find_relative(current_dir, rel_path):
+  if rel_path.startswith('/'):
+    return rel_path
+  else:
+    return path.normpath(path.join(current_dir, rel_path))
+
+
 def no_filter(filename, x):
   return x
+
+
+def compact_error(err):
+  """Return the the last 2 error messages from an error stack.
+
+  These error messages turns out to be the most descriptive.
+  """
+  def err2(e):
+    if isinstance(e, exceptions.EvaluationError) and e.inner:
+      message, i = err2(e.inner)
+      if i == 1:
+        return ', '.join([e.args[0], str(e.inner)]), i + 1
+      else:
+        return message, i + 1
+    else:
+      return str(e), 1
+  return err2(err)[0]
 
 
 def interpolate_json(filename, x):
@@ -230,12 +260,13 @@ def interpolate_json(filename, x):
   return InterpolatableJSON(x)
 
 
-class InterpolatableJSON(gcl.TupleLike):
+class InterpolatableJSON(framework.TupleLike):
   """JSON list or dict in which string values can be string-interpolated."""
   def __init__(self, obj, subs=None):
     self.obj = obj
     self.subs = subs or {}
     self.evalled = None
+    self.tuples = [self]
 
   def _eval(self):
     if not self.evalled:
@@ -246,7 +277,8 @@ class InterpolatableJSON(gcl.TupleLike):
       return {self._translate(k): self._translate(v) for k, v in p6_iteritems(x)}
     if isinstance(x, list):
       return [self._translate(y) for y in x]
-    if gcl.is_str(x):
+    if framework.is_str(x):
+      print self.subs
       return x.format(**self.subs)
     return x
 
@@ -306,7 +338,7 @@ class JSONLoader(object):
   """
   def __init__(self, fs, filter_fn=None):
     self.fs = fs
-    self.cache = gcl.Cache()
+    self.cache = framework.Cache()
     self.filter_fn = filter_fn or no_filter
 
   def __call__(self, current_file, rel_path, env=None):
@@ -317,22 +349,6 @@ class JSONLoader(object):
       do_load = lambda: self.filter_fn(nice_path, json.loads(self.fs.load(full_path)))
     else:
       # Load as GCL
+      import gcl
       do_load = lambda: gcl.loads(self.fs.load(full_path), filename=nice_path, loader=self, env=env)
     return self.cache.get(full_path, do_load)
-
-
-def compact_error(err):
-  """Return the the last 2 error messages from an error stack.
-
-  These error messages turns out to be the most descriptive.
-  """
-  def err2(e):
-    if isinstance(e, gcl.EvaluationError) and e.inner:
-      message, i = err2(e.inner)
-      if i == 1:
-        return ', '.join([e.args[0], str(e.inner)]), i + 1
-      else:
-        return message, i + 1
-    else:
-      return str(e), 1
-  return err2(err)[0]

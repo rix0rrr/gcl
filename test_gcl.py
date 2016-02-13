@@ -2,6 +2,7 @@ import unittest
 from os import path
 
 import gcl
+from gcl import exceptions
 
 def parse(s, env=None, implicit_tuple=False, loader=None):
   return (gcl.reads(s, implicit_tuple=implicit_tuple, loader=loader)
@@ -96,7 +97,7 @@ class TestTuple(unittest.TestCase):
     try:
       print(t['foo'])
       self.fail('Should have thrown')
-    except gcl.EvaluationError:
+    except exceptions.EvaluationError:
       pass  # Expected
 
   def testIndirectUnbound(self):
@@ -104,7 +105,7 @@ class TestTuple(unittest.TestCase):
     try:
       print(t['bar'])
       self.fail('Should have thrown')
-    except gcl.EvaluationError:
+    except exceptions.EvaluationError:
       pass  # Expected
 
   def testVariableInSameScope(self):
@@ -345,7 +346,7 @@ class TestScoping(unittest.TestCase):
       z = x;
     }
     """)
-    self.assertRaises(gcl.EvaluationError, lambda: t['y']['z'])
+    self.assertRaises(exceptions.EvaluationError, lambda: t['y']['z'])
 
   def testVariableCantBeOverridenByContentsOfTuple(self):
     t = parse_tuple("""
@@ -424,7 +425,7 @@ class TestScoping(unittest.TestCase):
     try:
       t['y']['z']
       self.fail('Should have thrown')
-    except gcl.EvaluationError as e:
+    except exceptions.EvaluationError as e:
       pass  # Expected
 
   def testRelativeImportWithDeclaration(self):
@@ -518,7 +519,7 @@ class TestScoping(unittest.TestCase):
     """)
     try:
       self.assertEquals(3, x['two']['moo'])
-    except gcl.EvaluationError as e:
+    except exceptions.EvaluationError as e:
       self.assertTrue('Unknown' in str(e))
 
   def testDoubleApplicationAndResolutionGivesGoodError(self):
@@ -529,7 +530,7 @@ class TestScoping(unittest.TestCase):
     """)
     try:
       self.assertEquals(3, x['final']['bla'])
-    except gcl.EvaluationError as e:
+    except exceptions.EvaluationError as e:
       self.assertTrue('Unbound' in str(e))
 
   def testRecursionDetection(self):
@@ -540,7 +541,7 @@ class TestScoping(unittest.TestCase):
     try:
       print(x['y']['z'])
       self.fail('Should have thrown')
-    except gcl.EvaluationError as e:
+    except exceptions.EvaluationError as e:
       pass
 
 

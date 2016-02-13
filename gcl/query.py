@@ -8,6 +8,8 @@ which supports selection of elements in an object tree.
 import pyparsing as p
 
 import gcl
+from gcl import framework
+from gcl import ast
 
 
 class QueryError(RuntimeError):
@@ -16,13 +18,13 @@ class QueryError(RuntimeError):
 def mkAlternates(x):
   return tuple(x)
 
-variable = gcl.variable.copy().setParseAction(lambda x: str(x[0]))
-alts = gcl.bracketedList('{', '}', ',', variable, mkAlternates)
-list_index = gcl.sym('[') + gcl.integer.copy().setParseAction(lambda x: int(x[0])) + gcl.sym(']')
+variable = ast.variable.copy().setParseAction(lambda x: str(x[0]))
+alts = ast.bracketedList('{', '}', ',', variable, mkAlternates)
+list_index = ast.sym('[') + ast.integer.copy().setParseAction(lambda x: int(x[0])) + ast.sym(']')
 everything = p.Literal('*')
 element = variable | alts | list_index | everything
 
-selector = p.Group(p.Optional(element + p.ZeroOrMore(gcl.sym('.') + element)))
+selector = p.Group(p.Optional(element + p.ZeroOrMore(ast.sym('.') + element)))
 
 
 def parseSelector(s):
@@ -41,7 +43,7 @@ def isListKey(key):
 
 
 def is_tuple(x):
-  return isinstance(x, gcl.TupleLike) or isinstance(x, dict)
+  return isinstance(x, framework.TupleLike) or isinstance(x, dict)
 
 
 class GPath(object):

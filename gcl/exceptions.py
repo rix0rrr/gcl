@@ -6,3 +6,11 @@ class ParseError(GCLError):
 
 class SchemaError(GCLError):
   pass
+
+class EvaluationError(GCLError):
+  def __init__(self, message, inner=None):
+    super(EvaluationError, self).__init__(message)
+    self.inner = inner
+
+  def __str__(self):
+    return self.args[0] + ('\n' + str(self.inner) if self.inner else '')

@@ -1,7 +1,7 @@
-"""Schema evaluation classes."""
+"""Schema runtime classes."""
 
 from . import exceptions
-import gcl
+from . import framework
 
 
 class Schema(object):
@@ -11,7 +11,7 @@ class Schema(object):
   def get_subschema(self, key):
     raise NotImplementedError()
 
-  def __neq__(self, other):
+  def __ne__(self, other):
     return not (self == other)
 
 
@@ -28,6 +28,8 @@ class AnySchema(Schema):
   def __eq__(self, other):
     return isinstance(other, AnySchema)
 
+
+any_schema = AnySchema()  # Object reuse through immutable singleton
 
 class AndSchema(Schema):
   def __init__(self, one, two):
@@ -49,6 +51,8 @@ class AndSchema(Schema):
 
   @staticmethod
   def make(one, two):
+    if one == any_schema: return two
+    if two == any_schema: return one
     return AndSchema(one, two) if one != two else one
 
 
@@ -63,7 +67,7 @@ class ScalarSchema(Schema):
     raise RuntimeError('Cannot get subschema from ScalarSchema')
 
   def _validate_string(self, value):
-    if not gcl.is_str(value):
+    if not framework.is_str(value):
       raise exceptions.SchemaError('%r should be a string' % value)
 
   def _validate_int(self, value):
@@ -94,7 +98,7 @@ class ListSchema(Schema):
     self.element_schema = element_schema
 
   def validate(self, value):
-    if not gcl.is_list(value):
+    if not framework.is_list(value):
       raise exceptions.SchemaError('%r should be a list' % value)
 
     for i, x in enumerate(value):
@@ -118,8 +122,12 @@ class TupleSchema(Schema):
     self.field_schemas = field_schemas
     self.required_fields = required_fields
 
+    for v in self.field_schemas.values():
+      if not isinstance(v, Schema):
+        raise ValueError('subschemas should be instances of Schema, got %r' % v)
+
   def validate(self, value):
-    if not gcl.is_tuple(value):
+    if not framework.is_tuple(value):
       raise exceptions.SchemaError('%r should be a tuple' % value)
 
     key_check = getattr(value, 'is_bound', value.has_key)
@@ -132,7 +140,8 @@ class TupleSchema(Schema):
     # we access the subfields.
 
   def get_subschema(self, key):
-    return self.field_schemas.get(key, AnySchema())
+    # The values in field_schemas are unevaluated specs
+    return self.field_schemas.get(key, any_schema)
 
   def __repr__(self):
     return 'TupleSchema(%r, %r)' % (self.field_schemas, self.required_fields)
@@ -156,18 +165,18 @@ def from_spec(spec):
   or a dictionary with two elements: {'fields': { ... }, required: [...]}.
   """
   if not spec:
-    return AnySchema()
+    return any_schema
 
-  if gcl.is_str(spec):
+  if framework.is_str(spec):
     # Scalar type
     if spec not in SCALAR_TYPES:
       raise exceptions.SchemaError('Not a valid schema type: %r' % spec)
     return ScalarSchema(spec)
 
-  if gcl.is_list(spec):
-    return ListSchema(from_spec(spec[0]) if len(spec) else AnySchema())
+  if framework.is_list(spec):
+    return ListSchema(from_spec(spec[0]) if len(spec) else any_schema)
 
-  if gcl.is_tuple(spec):
+  if framework.is_tuple(spec):
     return TupleSchema(spec.get('fields', {}), spec.get('required', []))
 
-  raise SchemaError('Not valid schema spec; %r' % spec)
+  raise exceptions.SchemaError('Not valid schema spec; %r' % spec)
