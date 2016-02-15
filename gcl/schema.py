@@ -31,6 +31,7 @@ class AnySchema(Schema):
 
 any_schema = AnySchema()  # Object reuse through immutable singleton
 
+
 class AndSchema(Schema):
   def __init__(self, one, two):
     self.one = one
@@ -97,6 +98,9 @@ class ListSchema(Schema):
   def __init__(self, element_schema):
     self.element_schema = element_schema
 
+    if not isinstance(element_schema, Schema):
+      raise ValueError('Expecting Schema instance in List, got %r' % element_schema)
+
   def validate(self, value):
     if not framework.is_list(value):
       raise exceptions.SchemaError('%r should be a list' % value)
@@ -136,6 +140,9 @@ class TupleSchema(Schema):
       if not key_check(k):
         raise exceptions.SchemaError('Tuple is missing required key %r in %r' % (k, value))
 
+    # Attach schema to tuple, so it can verify subfields
+    getattr(value, 'attach_schema', nop)(self)
+
     # Don't validate the subfields here -- we'll do that lazily when
     # we access the subfields.
 
@@ -164,7 +171,7 @@ def from_spec(spec):
   A spec is either a string for a scalar type, or a list of 0 or 1 specs,
   or a dictionary with two elements: {'fields': { ... }, required: [...]}.
   """
-  if not spec:
+  if spec == '':
     return any_schema
 
   if framework.is_str(spec):
@@ -174,9 +181,15 @@ def from_spec(spec):
     return ScalarSchema(spec)
 
   if framework.is_list(spec):
-    return ListSchema(from_spec(spec[0]) if len(spec) else any_schema)
+    return ListSchema(spec[0] if len(spec) else any_schema)
 
   if framework.is_tuple(spec):
     return TupleSchema(spec.get('fields', {}), spec.get('required', []))
 
   raise exceptions.SchemaError('Not valid schema spec; %r' % spec)
+
+
+builtin_schemas = {k: ScalarSchema(k) for k in SCALAR_TYPES.keys()}
+
+
+def nop(x): pass

@@ -25,14 +25,20 @@ class TestSchemaObjects(unittest.TestCase):
     schema.from_spec('bool').validate(False)
 
   def testListWithSpec(self):
-    schema.from_spec(['int']).validate([3])
-    schema.from_spec(['int']).validate([])
-    schema.from_spec(['int']).validate([1, 2])
+    int_schema = schema.ScalarSchema('int')
+    schema.from_spec([int_schema]).validate([3])
+    schema.from_spec([int_schema]).validate([])
+    schema.from_spec([int_schema]).validate([1, 2])
     schema.from_spec([]).validate([1, 2])
 
-  def testListWithSpecFails(self):
+  def testListSchema(self):
     with self.assertRaises(exceptions.SchemaError):
-      schema.from_spec(['string']).validate([1, 2])
+      schema.from_spec([]).validate('whoops')
+
+  def testListWithSpecFails(self):
+    string_schema = schema.ScalarSchema('string')
+    with self.assertRaises(exceptions.SchemaError):
+      schema.from_spec([string_schema]).validate([1, 2])
 
   def testTuple(self):
     schema.from_spec({}).validate({})
@@ -150,6 +156,30 @@ class TestSchemaFromGCL(unittest.TestCase):
     self.assertEquals(schema.ScalarSchema('int'), x['y'].tuple_schema.get_subschema('x'))
     self.assertEquals(schema.ScalarSchema('bool'), x['y'].tuple_schema.get_subschema('z'))
 
+  def testInheritSchemaWithOverriddenValue(self):
+    x = gcl.loads("""
+      y = { x : int } { x = 3 };
+    """)
+    self.assertEquals(schema.ScalarSchema('int'), x['y'].tuple_schema.get_subschema('x'))
+
+  def testListSchema(self):
+    x = gcl.loads("""
+      y = { x : [int] }
+    """)
+    self.assertEquals(schema.ListSchema(schema.ScalarSchema('int')), x['y'].tuple_schema.get_subschema('x'))
+
+  def testAnyListSchema(self):
+    x = gcl.loads("""
+      y = { x : [] }
+    """)
+    self.assertEquals(schema.ListSchema(schema.AnySchema()), x['y'].tuple_schema.get_subschema('x'))
+
+  def testInheritSchemaWithOverriddenValueWhichIsAList(self):
+    x = gcl.loads("""
+      y = { x : [int] } { x = [3] };
+    """)
+    self.assertEquals(schema.ListSchema(schema.ScalarSchema('int')), x['y'].tuple_schema.get_subschema('x'))
+
 
 class TestSchemaInGCL(unittest.TestCase):
   """Tests to ensure that using schemas directly inside GCL do the right thing."""
@@ -181,10 +211,17 @@ class TestSchemaInGCL(unittest.TestCase):
         B = A { foo = 'hello' };
         """)
     with self.assertRaises(exceptions.SchemaError):
-      print x['B']
+      print x['B']['foo']
 
-  def testCompositionCombinesSchemas(self):
-    pass
+  def testRequiredFieldsInComposition(self):
+    x = gcl.loads("""
+      SuperClass = { x : required };
+      ok_instance = SuperClass { x = 1 };
+      failing_instance = SuperClass { y = 1 };
+    """)
+    print x['ok_instance']
+    with self.assertRaises(exceptions.SchemaError):
+      print x['failing_instance']
 
   def testClassesInTupleComposition(self):
     x = gcl.loads("""
@@ -205,9 +242,9 @@ class TestSchemaInGCL(unittest.TestCase):
         };
       }
     """)
-    print x['objects']['correct']
+    zzz = x['objects']['correct']['atoms']
     with self.assertRaises(exceptions.SchemaError):
-      print x['objects']['broken']
+      zzz = x['objects']['broken']['atoms']
 
   def testSchemaTypoExceptionIsDescriptive(self):
     """Check that if you make a typo in a type name the error is helpful."""
@@ -216,19 +253,28 @@ class TestSchemaInGCL(unittest.TestCase):
       x = gcl.loads("""
       a : strong;
       """)
-      self.fail('Should have thrown')
 
   def testSpecifySchemaDeep(self):
+    obj = gcl.loads("x : { a : required } = { b = 'foo' };")
     with self.assertRaises(exceptions.SchemaError):
-      gcl.loads("x : { a : required } = { b = 'foo' };")
+      print obj['x']
 
   def testSpecifySchemaDeepInList(self):
+    obj = gcl.loads("x : [{ a : int }] = [{ a = 'foo' }];")
     with self.assertRaises(exceptions.SchemaError):
-      gcl.loads("x : [{ a : int }] = [{ a = 'foo' }];")
+      print obj['x'][0]['a']
 
   def testSchemaCanBeSetFromAbove(self):
-    pass
+    obj = gcl.loads("x : { x : { a : int }} = { x = { a = 'hoi' }}")
+    with self.assertRaises(exceptions.SchemaError):
+      print obj['x']['x']['a']
 
   def testSchemaCombinesFromAbove(self):
-    pass
+    obj = gcl.loads("x : { x : { a : int }} = { x = { a = 'hoi' }}")
+    with self.assertRaises(exceptions.SchemaError):
+      print obj['x']['x']['a']
 
+
+class TestExportVisibilityThroughSchemas(unittest.TestCase):
+  """Test the annotation of schemas with exportable fields for JSON exports."""
+  pass

@@ -21,26 +21,34 @@ class BindableThunk(Thunk):
     raise exceptions.EvaluationError('Not implemented')
 
 
-def eval(thunk, env, schema=None):
+def eval(thunk, env, schema=None, no_schema_validation=False):
   """Evaluate a thunk in an environment.
 
   Will defer the actual evaluation to the thunk itself, but adds two things:
   caching and recursion detection.
 
-  Since we have to use a global evaluation stack, GCL evaluation is not thread
-  safe.
+  Since we have to use a global evaluation stack (because there is a variety of functions that may
+  be invoked, not just eval() but also __getitem__, and not all of them can pass along a context
+  object), GCL evaluation is not thread safe.
+
+  With regard to schemas:
+
+  - A schema can be passed in from outside. The returned object will be validated to see that it
+    conforms to the schema. The schema will be attached to the value if possible.
+  - Some objects may contain their own schema, such as tuples. This would be out of scope of the
+    eval() function, were it not for:
+  - Schema validation can be disabled in an evaluation call stack. This is useful if we're
+    evaluating a tuple only for its schema information. At that point, we're not interested if the
+    object is value-complete.
   """
   key = (thunk.ident, env.ident)
-  if key in activation_stack:
+  if key in Activation.stack:
     raise exceptions.EvaluationError('Reference cycle')
 
-  with Activation(activation_stack, key):
+  with Activation(key, no_schema_validation=no_schema_validation):
     val = eval_cache.get(key, lambda: thunk.eval(env))
-    if schema:
+    if schema and not Activation.no_schema_validation:
       schema.validate(val)
-      setter = getattr(val, 'add_schema', None)
-      if setter:
-        setter(schema)
     return val
 
 
@@ -81,15 +89,26 @@ def obj_ident():
 
 
 class Activation(object):
-  def __init__(self, stack, key):
-    self.stack = stack
+  stack = {}
+  no_schema_validation = 0
+
+  def __init__(self, key, no_schema_validation=False):
     self.key = key
+    self.no_schema_validation = no_schema_validation
 
   def __enter__(self):
     self.stack[self.key] = self
 
+    # Increase 'no_schema_validation' level
+    if self.no_schema_validation:
+      Activation.no_schema_validation += 1
+
   def __exit__(self, value, type, exc):
     del self.stack[self.key]
+
+    # Decrease 'no_schema_validation' level
+    if self.no_schema_validation:
+      Activation.no_schema_validation -= 1
 
 
 class Environment(object):
@@ -163,6 +182,7 @@ class Cache(object):
 
 
 eval_cache = Cache()
+
 activation_stack = {}
 
 

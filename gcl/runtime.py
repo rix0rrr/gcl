@@ -101,11 +101,11 @@ class Tuple(framework.TupleLike):
       tup = self.dict2tuple(tup)
 
     composite = CompositeTuple(self.tuples + tup.tuples, self.dict2tuple)
-    composite.add_schema(self.tuple_schema)
-    composite.add_schema(tup.tuple_schema)
+    composite.attach_schema(self.tuple_schema)
+    composite.attach_schema(tup.tuple_schema)
     return composite
 
-  def add_schema(self, schem):
+  def attach_schema(self, schem):
     """Add a tuple schema to this object (externally imposed)"""
     self.tuple_schema = schema.AndSchema.make(self.tuple_schema, schem)
 
@@ -114,7 +114,10 @@ class Tuple(framework.TupleLike):
     member_node = self.__tuplenode.member.get(key, None)
     if not member_node:
       return schema.AnySchema()
-    return member_node.member_schema.eval(self.env(self))
+    s = member_node.member_schema.eval(self.env(self))
+    if not isinstance(s, schema.Schema):
+      raise ValueError('Node %r with schema node %r should evaluate to Schema, got %r' % (member_node, member_node.member_schema, s))
+    return s
 
   def get_required_fields(self):
     """Return the names of fields that are required according to the schema."""

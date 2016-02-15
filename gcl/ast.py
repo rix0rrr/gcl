@@ -227,9 +227,9 @@ class TupleNode(framework.Thunk):
     """Instantiate the Tuple based on this TupleNode."""
     t = runtime.Tuple(self, env, dict2tuple)
     # A tuple also provides its own schema spec
-    schema = schema_spec_from_tuple(t)
-    schema.validate(t)
-    t.add_schema(schema)
+    if not framework.Activation.no_schema_validation:
+      schema = schema_spec_from_tuple(t)
+      schema.validate(t)
     return t
 
   def __repr__(self):
@@ -260,6 +260,9 @@ class Application(framework.Thunk):
     self.right = right
 
   def eval(self, env):
+    # FIXME: There is a special case here--if the left and right part are tuples, we need to hold
+    # off applying the schema validation until we've evaluated the compound structure. In all other
+    # cases, we just apply the schemas immediately.
     fn = framework.eval(self.left, env)
     arg = framework.eval(self.right, env)
 
@@ -268,7 +271,7 @@ class Application(framework.Thunk):
     if not isinstance(self.right, ArgList):
       arg = [arg]
 
-    # We now have evaluated and unevaluated versions of functor and arguments
+    # We now have evaluated and unevaluated versions of operator and operands.
     # The evaluated ones will be used for processing, the unevaluated ones will
     # be used for error reporting.
 
@@ -482,7 +485,7 @@ class Include(framework.Thunk):
 #  Schema AST model
 #
 
-class NoSchemaNode(object):
+class NoSchemaNode(framework.Thunk):
   """For values without a schema."""
   def __init__(self):
     self.ident = framework.obj_ident()
@@ -493,7 +496,7 @@ class NoSchemaNode(object):
 
 no_schema = NoSchemaNode()  # Singleton object
 
-class MemberSchemaNode(object):
+class MemberSchemaNode(framework.Thunk):
   """AST node for member schema definitions. Can be evaluated to produce runtime Schema classes.
 
   NOTE: this class does a little funky logic. Because we want to be able to write:
@@ -530,18 +533,7 @@ class MemberSchemaNode(object):
     self.expr = expr
 
   def eval(self, env):
-    if isinstance(self.expr, Var) and self.expr.name in schema.SCALAR_TYPES.keys():
-      # Resolve to self
-      return schema.from_spec(self.expr.name)
-    else:
-      value = framework.eval(self.expr, env)
-
-      if framework.is_tuple(value):
-        # If it so happens that the thing is a tuple, we need to pass in the data in a bit of a
-        # different way into the schema factory (in a dictionary with {fields, required} keys).
-        return schema_spec_from_tuple(value)
-
-      return value
+    return make_schema_from(self.expr, env)
 
   def __repr__(self):
     return ' '.join((['required'] if self.required else []) +
@@ -577,6 +569,35 @@ def schema_spec_from_tuple(tup):
   return schema.AnySchema()
 
 
+def make_schema_from(value, env):
+  """Make a Schema object from the given spec.
+
+  The input and output types of this function are super unclear, and are held together by ponies,
+  wishes, duct tape, and a load of tests. See the comments for horrific entertainment.
+  """
+
+  # So this thing may not need to evaluate anything[0]
+  if isinstance(value, framework.Thunk):
+    value = framework.eval(value, env, no_schema_validation=True)
+
+  # We're a bit messy. In general, this has evaluated to a Schema object, but not necessarily:
+  # for tuples and lists, we still need to treat the objects as specs.
+  if isinstance(value, schema.Schema):
+    return value
+
+  if framework.is_tuple(value):
+    # If it so happens that the thing is a tuple, we need to pass in the data in a bit of a
+    # different way into the schema factory (in a dictionary with {fields, required} keys).
+    return schema_spec_from_tuple(value)
+
+  if framework.is_list(value):
+    # [0] This list may contain tuples, which oughta be treated as specs, or already-resolved schema
+    # objects (as returned by 'int' and 'string' literals). make_schema_from
+    # deals with both.
+    return schema.from_spec([make_schema_from(x, env) for x in value])
+
+  raise exceptions.EvaluationError('Can\'t make a schema from %r' % value)
+
 #----------------------------------------------------------------------
 #  Grammar
 #
@@ -605,8 +626,6 @@ def bracketedList(l, r, sep, expr, what):
 
 keywords = ['and', 'or', 'not', 'if', 'then', 'else', 'include', 'inherit', 'null', 'true', 'false',
     'for', 'in']
-
-scalar_schemas = schema.SCALAR_TYPES.keys()
 
 expression = p.Forward()
 

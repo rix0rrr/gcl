@@ -40,7 +40,11 @@ default_loader = runtime.NormalLoader(runtime.OnDiskFiles())
 #  Top-level functions
 #
 
-default_env = framework.Environment(functions.builtin_functions)
+_default_bindings = {}
+_default_bindings.update(functions.builtin_functions)
+_default_bindings.update(schema.builtin_schemas)
+
+default_env = framework.Environment(_default_bindings)
 
 def reads(s, filename=None, loader=None, implicit_tuple=True):
   """Load but don't evaluate a GCL expression from a string."""
@@ -73,5 +77,3 @@ def load(filename, loader=None, implicit_tuple=True, env=None):
                  loader=loader,
                  implicit_tuple=implicit_tuple,
                  env=env)
-
-
