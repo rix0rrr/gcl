@@ -123,12 +123,15 @@ class Tuple(framework.TupleLike):
     """Return the names of fields that are required according to the schema."""
     return [m.name for m in self.__tuplenode.members if m.member_schema.required]
 
+  def __iter__(self):
+    return iter(self.keys())
+
   def __repr__(self):
     return '{%s}' % '; '.join(self._render(k) for k in self.keys())
 
   def __call__(self, right):
     """Apply a tuple to another value."""
-    if isinstance(right, framework.TupleLike):
+    if framework.is_tuple(right):
       return self.compose(right)
 
     if framework.is_str(right):

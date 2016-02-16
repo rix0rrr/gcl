@@ -30,6 +30,9 @@ class TestBasics(unittest.TestCase):
   def testDoubleQuotedString(self):
     self.assertEquals("foo", parse('"foo"'))
 
+  def testEscapedString(self):
+    self.assertEquals("Master \"Bob\" Foo", parse('"Master \\"Bob\\" Foo"'))
+
   def testNull(self):
     self.assertEquals(None, parse('null'))
 
@@ -42,6 +45,11 @@ class TestBasics(unittest.TestCase):
       # comment
       3
       """))
+
+  def testLeaveTabsAlone(self):
+    obj = parse('{ x = "\t" }')
+    self.assertEquals('\t', obj['x'])
+
 
   def testComments2(self):
     self.assertEquals(3, parse("""
@@ -132,6 +140,10 @@ class TestTuple(unittest.TestCase):
   def testDereferencingFromEnvironment(self):
     x = parse('obj.attr', env={ 'obj': { 'attr' : 1 }})
     self.assertEquals(1, x)
+
+  def testDoubleDeclarationIsError(self):
+    with self.assertRaises(gcl.ParseError):
+      parse('{ x = 3; x = 4 }')
 
 
 class TestApplication(unittest.TestCase):
@@ -289,6 +301,15 @@ class TestApplication(unittest.TestCase):
     self.assertEquals('a', x['y'])
     self.assertEquals('b', x['z'])
 
+  def testCompositionWithDict(self):
+    env = {}
+    env['fn'] = lambda arg : {'b': arg}
+    x = parse_tuple('''
+      x = { a = 'a' };
+      y = x (fn 'b');
+    ''', env=gcl.Environment(env))
+    self.assertEquals('b', x['y']['b'])
+
 
 class TestExpressions(unittest.TestCase):
   def testAdd(self):
@@ -323,6 +344,13 @@ class TestExpressions(unittest.TestCase):
     self.assertEquals([2, 4, 6], parse('[double x for x in [1, 2] + [3]]', {
         'double': lambda x: x * 2
       }))
+
+  def testListComprehensionOverTuple(self):
+    x = parse('''{
+      x = { a = 1; b = 2; c = 3 };
+      y = sum([x(k) for k in x ]);
+    }''')
+    self.assertEquals(6, x['y'])
 
 
 class TestScoping(unittest.TestCase):
@@ -588,22 +616,22 @@ class TestErrorMessages(unittest.TestCase):
   def testKeyExceptionContainsInfo(self):
     x = parse('{ x = { boo = "bah" }}')
     try:
-      print x['foo']
-    except Exception, e:
+      print(x['foo'])
+    except Exception as e:
       self.assertTrue('boo' in str(e))
 
   def testKeyExceptionContainsInfoForCompositeTuple(self):
     x = parse('{ x = { boo = "bah" } { bie = "bye" } }')
     try:
-      print x['foo']
-    except Exception, e:
+      print(x['foo'])
+    except Exception as e:
       self.assertTrue('boo' in str(e))
 
   def testKeyExceptionContainsInfoForBaseReferenceInCompositeTuple(self):
     x = parse('{ x = { boo = "bah" } { foo = base.bye } }')
     try:
-      print x['foo']
-    except Exception, e:
+      print(x['foo'])
+    except Exception as e:
       self.assertTrue('boo' in str(e))
 
 

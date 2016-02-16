@@ -64,14 +64,22 @@ class EnvironmentFunction(object):
 
 def str_join(lst, sep=' '):
   """Behaves like string.join from Python 2."""
-  return sep.join(lst)
+  return sep.join(str(x) for x in lst)
+
+
+def compose_all(tups):
+  """Compose all given tuples together."""
+  return reduce(lambda x, y: x.compose(y), map(gcl.make_tuple, tups), gcl.make_tuple({}))
 
 
 builtin_functions = {
     'eager': eager,
     'path_join': path.join,
     'join': str_join,
-    'fmt': EnvironmentFunction(fmt)
+    'fmt': EnvironmentFunction(fmt),
+    'sum': sum,
+    'compose_all': compose_all,
+    'sorted': sorted
     }
 
 

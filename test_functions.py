@@ -38,3 +38,18 @@ class TestStringInterpolation(unittest.TestCase):
     things = join(['a', 'b', 'c']);
     """)
     self.assertEquals('a b c', x['things'])
+
+  def testComposeAll(self):
+    x = gcl.loads('''
+    empty = compose_all([]);
+    combined = compose_all([{ a = 'a' }, { b = 'b' }]);
+    ''')
+    self.assertEquals([], x['empty'].keys())
+    self.assertEquals(['a', 'b'], sorted(x['combined'].keys()))
+
+  def testSorted(self):
+    x = gcl.loads('''
+      tup = { a = 1; b = 2; c = 3; d = 4 };
+      keys = sorted([k for k in tup ])
+    ''')
+    self.assertEquals(['a', 'b', 'c', 'd'], x['keys'])

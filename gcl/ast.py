@@ -1,6 +1,7 @@
 """
 AST and parsing related functions.
 """
+import itertools
 import sys
 
 import pyparsing as p
@@ -40,10 +41,19 @@ def pafac(fn):
   def wrapped(s, loc, x):
     try:
       return fn(SourceLocation(s, loc), *list(x))
-    except TypeError, e:
+    except TypeError as e:
       # pyparsing will catch TypeErrors to "detect" our arity, but I don't want to swallow errors
-      # here.  Convert to some other exception type.
-      raise RuntimeError, sys.exc_info()[1], sys.exc_info()[2]
+      # here. Convert to some other exception type. I'd LOVE to keep the stack trace here, but there
+      # is no one syntax that is not a syntax error in either Python 2 or Python 3. So in Python 2
+      # we don't keep the stack trace, unfortunately.
+
+      if hasattr(e, 'with_traceback'):
+        # Python 3
+        raise RuntimeError(str(e)).with_traceback(sys.exc_info()[2])
+      else:
+        # Python 2, put the original trace inside the error message. This exception is never
+        # supposed to happen anyway, it is just for debugging.
+        raise RuntimeError(traceback.format_exc())
   return wrapped
 
 
@@ -214,7 +224,11 @@ class TupleNode(framework.Thunk):
   When evaluating, the tuple doesn't actually evaluate its children. Instead, we return a (lazy)
   Tuple object that only evaluates the elements when they're requested.
   """
-  def __init__(self, members):
+  def __init__(self, sloc, *members):
+    duplicates = [name for name, ns in itertools.groupby(sorted(m.name for m in members)) if len(list(ns)) > 1]
+    if duplicates:
+      raise exceptions.ParseError('Key %s occurs more than once in tuple at %s' % (', '.join(duplicates), sloc))
+
     self.ident = framework.obj_ident()
     self.members = members
     self.member = {m.name: m for m in self.members}
@@ -612,8 +626,7 @@ def kw(kw):
 
 def listMembers(sep, expr, what):
   return p.Optional(p.delimitedList(expr, sep) -
-                    p.Optional(sep).suppress()).setParseAction(
-                        lambda ts: what(list(ts)))
+                    p.Optional(sep).suppress()).setParseAction(what)
 
 
 def bracketedList(l, r, sep, expr, what):
@@ -653,8 +666,8 @@ tuple_member = (inherit
                | (identifier + optional_schema + ~p.FollowedBy('=')).setParseAction(lambda s, loc, x: TupleMemberNode(SourceLocation(s, loc), x[0], x[1], Void(x[0], SourceLocation(s, loc))))
                | (identifier - optional_schema - p.Suppress('=') - expression).setParseAction(pafac(TupleMemberNode))
                )
-tuple_members = listMembers(';', tuple_member, TupleNode)
-tuple = bracketedList('{', '}', ';', tuple_member, TupleNode)
+tuple_members = listMembers(';', tuple_member, pafac(TupleNode))
+tuple = bracketedList('{', '}', ';', tuple_member, pafac(TupleNode))
 
 # Variable (can't be any of the keywords, which may have lower matching priority)
 variable = ~p.Or([p.Keyword(k) for k in keywords]) + identifier.copy().setParseAction(mkVar)
@@ -732,8 +745,8 @@ def reads(s, filename, loader, implicit_tuple):
   try:
     the_context.filename = filename
     the_context.loader = loader
-    return (start_tuple if implicit_tuple else start).parseString(s, parseAll=True)[0]
+    return (start_tuple if implicit_tuple else start).parseWithTabs().parseString(s, parseAll=True)[0]
   except (p.ParseException, p.ParseSyntaxException) as e:
     msg = '%s:%d: %s\n%s\n%s^-- here' % (the_context.filename, e.lineno, e.msg, e.line, ' ' * (e.col - 1))
-    raise ParseError(msg)
+    raise exceptions.ParseError(msg)
 
