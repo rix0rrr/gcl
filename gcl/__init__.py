@@ -75,10 +75,14 @@ def read(filename, loader=None, implicit_tuple=True):
                  implicit_tuple=implicit_tuple)
 
 
-def loads(s, filename=None, loader=None, implicit_tuple=True, env=None):
+def loads(s, filename=None, loader=None, implicit_tuple=True, env={}):
   """Load and evaluate a GCL expression from a string."""
   ast = reads(s, filename=filename, loader=loader, implicit_tuple=implicit_tuple)
-  return framework.eval(ast, make_env(env or default_env))
+  if not isinstance(env, framework.Environment):
+    # For backwards compatibility we accept an Environment object. Otherwise assume it's a dict
+    # whose bindings will add/overwrite the default bindings.
+    env = framework.Environment(dict(_default_bindings, **env))
+  return framework.eval(ast, env)
 
 
 def load(filename, loader=None, implicit_tuple=True, env=None):

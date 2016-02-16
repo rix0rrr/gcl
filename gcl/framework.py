@@ -87,7 +87,6 @@ def obj_ident():
   return obj_nr
 
 
-
 class Activation(object):
   stack = {}
   no_schema_validation = 0
