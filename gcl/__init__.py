@@ -1025,7 +1025,13 @@ start_tuple = tuple_members.ignore(comment)
 #  Top-level functions
 #
 
+def make_env(x):
+  """Turn an dict into an Environment object."""
+  return x if isinstance(x, Environment) else Environment(x)
+
+
 default_env = Environment(functions.builtin_functions)
+
 
 def reads(s, filename=None, loader=None, implicit_tuple=True):
   """Load but don't evaluate a GCL expression from a string."""
@@ -1050,7 +1056,7 @@ def read(filename, loader=None, implicit_tuple=True):
 def loads(s, filename=None, loader=None, implicit_tuple=True, env=None):
   """Load and evaluate a GCL expression from a string."""
   ast = reads(s, filename=filename, loader=loader, implicit_tuple=implicit_tuple)
-  return eval(ast, env or default_env)
+  return eval(ast, make_env(env or default_env))
 
 
 def load(filename, loader=None, implicit_tuple=True, env=None):

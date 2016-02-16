@@ -64,7 +64,7 @@ class EnvironmentFunction(object):
 
 def str_join(lst, sep=' '):
   """Behaves like string.join from Python 2."""
-  return sep.join(lst)
+  return sep.join(str(x) for x in lst)
 
 
 def compose_all(tups):
