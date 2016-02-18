@@ -1,11 +1,10 @@
-# gcl standard library
+Functions in GCL
+================
 
-This document contains a list of all the standard functions in GCL, as well as in the associated
-Python libraries for working with GCL.
+This document contains a list of all the functions that come in the standard distribution of GCL.
+They're defined in `gcl/functions.py`.
 
-## GCL standard functions
-
-These functions are available inside GCL. They're defined in `gcl/functions.py`.
+## List of standard functions
 
 ### `fmt(format_string, [env])`
 
@@ -44,8 +43,7 @@ Sums a list of numbers.
 Turn a lazy GCL tuple into a dict. This eagerly evaluates all keys, and forces the object to be
 complete.
 
-
-## Adding custom standard functions
+## Custom functions
 
 You can define new functions for use inside GCL (in fact, you can bind arbitrary values to any
 identifier) by passing in new bindings for the initial environment, using the keyword argument `env`
@@ -57,4 +55,5 @@ when calling `gcl.read`:
     my_bindings = { 'upper': string.upper }
 
     object = gcl.loads('yell = upper "hello"', env=my_bindings)
-    print object['yell']
+    print(object['yell'])
+

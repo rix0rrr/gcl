@@ -11,12 +11,12 @@ Contents:
 .. toctree::
    :maxdepth: 2
 
-
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
-
+   introduction
+   basics
+   scoping
+   loading_and_using
+   command_line_tools
+   schemas
+   standard_functions
+   editing
+   motivation

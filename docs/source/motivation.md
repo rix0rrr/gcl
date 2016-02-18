@@ -1,10 +1,11 @@
-# Why should I care about GCL?
+Why should I care about GCL?
+============================
 
 I'd like to take you through the design motivations of GCL as a configuration
 language. In particular, I'm going to show what the advantages are compared to
 writing JSON by hand.
 
-### A gentle note of warning
+## A gentle note of warning
 
 The goal of GCL is to _reduce repetition_ in a complex JSON configuration.
 However, in trying to tame that complexity, we have had to introduce _some_
@@ -13,7 +14,7 @@ fancy features of GCL may not be a win in your particular situation. Of course,
 you can still just use it as a less-noisy, more friendly-to-type JSON variant
 :).
 
-### Whither JSON?
+## Whither JSON?
 
 First off, why are we competing with JSON? JSON is not a _configuration_
 format. It's a _data serialization_ format. It exists so computer programs can
@@ -399,3 +400,4 @@ are very welcome!
 
 
 [^1]: But then again, I'm of the opinion that ALL config should be treated as part of code. JSON files and INI files have just as much of an implicit contract with their interpreting script as GCL, which should be documented just as well.
+
