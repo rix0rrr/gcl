@@ -241,9 +241,8 @@ class TupleNode(framework.Thunk):
     """Instantiate the Tuple based on this TupleNode."""
     t = runtime.Tuple(self, env, dict2tuple)
     # A tuple also provides its own schema spec
-    if not framework.Activation.no_schema_validation:
-      schema = schema_spec_from_tuple(t)
-      schema.validate(t)
+    schema = schema_spec_from_tuple(t)
+    t.attach_schema(schema)
     return t
 
   def __repr__(self):
@@ -592,7 +591,7 @@ def make_schema_from(value, env):
 
   # So this thing may not need to evaluate anything[0]
   if isinstance(value, framework.Thunk):
-    value = framework.eval(value, env, no_schema_validation=True)
+    value = framework.eval(value, env)
 
   # We're a bit messy. In general, this has evaluated to a Schema object, but not necessarily:
   # for tuples and lists, we still need to treat the objects as specs.

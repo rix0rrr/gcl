@@ -43,12 +43,18 @@ class Tuple(framework.TupleLike):
     if type(key) == int:
       raise ValueError('Trying to access tuple as a list')
 
-    x = self.get_thunk(key)
+    x = self.get_no_validate(key)
+
+    return schema.validate(x, self.tuple_schema.get_subschema(key))
+
+  def get_no_validate(self, key):
+    """Return an item without validating the schema."""
+    x, env = self.get_thunk_env(key)
 
     # Check if this is a Thunk that needs to be lazily evaluated before we
     # return it.
     if isinstance(x, framework.Thunk):
-      return framework.eval(x, self.env(self), self.tuple_schema.get_subschema(key))
+      x = framework.eval(x, env)
 
     return x
 
@@ -78,14 +84,19 @@ class Tuple(framework.TupleLike):
       yield k, self[k]
 
   def get_thunk(self, k):
+    return self.get_thunk_env(k)[0]
+
+  def get_thunk_env(self, k):
     if k not in self.__items:
       raise exceptions.EvaluationError('Unknown key: %r in tuple %r' % (k, self))
     x = self.__items[k]
 
+    env = self.env(self)
+
     # Bind this to the tuple's parent environment
     if isinstance(x, framework.BindableThunk):
-      return x.bind(self.__parent_env)
-    return x
+      return x.bind(self.__parent_env), env
+    return x, env
 
   def _render(self, key):
     if key in self:
@@ -153,6 +164,9 @@ class CompositeBaseTuple(object):
   def __getitem__(self, key):
     for tup, env in self.composite.lookups[self.index:]:
       if key in tup:
+        # Can't simply use tup[key] because we need to get the indicated thunk but evaluate it in
+        # the CURRENT environment. The environment there is a combination of all tuples to the left
+        # of the indicated tuple.
         thunk = tup.get_thunk(key)
         if not isinstance(thunk, framework.Thunk):
           return thunk
@@ -211,14 +225,21 @@ class CompositeTuple(Tuple):
       return self[key]
     return default
 
-  def __getitem__(self, key):
+  def is_bound(self, name):
+    return name in self and self.maybe_get_thunk_env(name)[0] is not None
+
+  def maybe_get_thunk_env(self, key):
     for tup, env in self.lookups:
       if key in tup:
         thunk = tup.get_thunk(key)
-        if not isinstance(thunk, framework.Thunk):
-          return thunk  # Not a thunk but a literal then
-        if not thunk.is_unbound():
-          return framework.eval(thunk, env, self.tuple_schema.get_subschema(key))
+        if not isinstance(thunk, framework.Thunk) or not thunk.is_unbound():
+          return (thunk, env)
+    return None, None
+
+  def get_thunk_env(self, key):
+    thunk, env = self.maybe_get_thunk_env(key)
+    if thunk:
+      return thunk, env
     raise exceptions.EvaluationError('Unknown key: %r in composite tuple %r' % (key, self))
 
   def __repr__(self):

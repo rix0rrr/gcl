@@ -21,7 +21,7 @@ class BindableThunk(Thunk):
     raise exceptions.EvaluationError('Not implemented')
 
 
-def eval(thunk, env, schema=None, no_schema_validation=False):
+def eval(thunk, env):
   """Evaluate a thunk in an environment.
 
   Will defer the actual evaluation to the thunk itself, but adds two things:
@@ -45,11 +45,8 @@ def eval(thunk, env, schema=None, no_schema_validation=False):
   if key in Activation.stack:
     raise exceptions.EvaluationError('Reference cycle')
 
-  with Activation(key, no_schema_validation=no_schema_validation):
-    val = eval_cache.get(key, lambda: thunk.eval(env))
-    if schema and not Activation.no_schema_validation:
-      schema.validate(val)
-    return val
+  with Activation(key):
+    return eval_cache.get(key, lambda: thunk.eval(env))
 
 
 class TupleLike(object):
@@ -121,6 +118,9 @@ class Environment(object):
 
   def __getitem__(self, key):
     if key in self.names:
+      getter = getattr(self.values, 'get_no_validate', None)
+      if getter:
+        return getter(key)
       return self.values[key]
     return self.parent[key]
 
