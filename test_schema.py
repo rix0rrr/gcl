@@ -270,7 +270,7 @@ class TestSchemaInGCL(unittest.TestCase):
       print obj['x']['x']['a']
 
   def testSchemaCombinesFromAbove(self):
-    obj = gcl.loads("x : { x : { a : int }} = { x = { a = 'hoi' }}")
+    obj = gcl.loads("x : { x : { a : int }} = { x = { a = 3; b : required }}")
     with self.assertRaises(exceptions.SchemaError):
       print obj['x']['x']['a']
 
