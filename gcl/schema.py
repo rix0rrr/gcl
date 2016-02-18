@@ -108,7 +108,7 @@ class ListSchema(Schema):
     for i, x in enumerate(value):
       try:
         self.element_schema.validate(x)
-      except Exception, e:
+      except Exception as e:
         raise exceptions.SchemaError('While validating element %d of %r:\n%s' % (i + 1, x, e))
 
   def get_subschema(self, key):
@@ -134,7 +134,7 @@ class TupleSchema(Schema):
     if not framework.is_tuple(value):
       raise exceptions.SchemaError('%r should be a tuple' % value)
 
-    key_check = getattr(value, 'is_bound', value.has_key)
+    key_check = getattr(value, 'is_bound', value.__contains__)
 
     for k in self.required_fields:
       if not key_check(k):

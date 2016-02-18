@@ -301,7 +301,7 @@ class Application(framework.Thunk):
     if not callable(fn):
       raise exceptions.EvaluationError('Result of %r (%r) not callable' % (self.left, fn))
 
-    if isinstance(fn, functions.EnvironmentFunction):
+    if isinstance(fn, framework.EnvironmentFunction):
       return fn(*arg, env=env)
 
     return fn(*arg)
@@ -624,6 +624,13 @@ def make_schema_from(value, env):
     return schema.from_spec([make_schema_from(x, env) for x in value])
 
   raise exceptions.EvaluationError('Can\'t make a schema from %r' % value)
+
+
+def make_tuple(x):
+  """Turn a dict-like object into a Tuple."""
+  if isinstance(x, framework.TupleLike):
+    return x
+  return dict2tuple(x)
 
 #----------------------------------------------------------------------
 #  Grammar

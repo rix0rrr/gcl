@@ -192,19 +192,18 @@ class TestSchemaInGCL(unittest.TestCase):
       """)
 
   def testSchemaValidationIsLazy(self):
-    #print gcl.reads("a : int = 'foo';")
     x = gcl.loads("""
       a : int = 'foo';
     """)
     with self.assertRaises(exceptions.SchemaError):
-      print x['a']
+      print(x['a'])
 
   def testListSchema(self):
     x = gcl.loads("""
       a : [int] = ['boo'];
     """)
     with self.assertRaises(exceptions.SchemaError):
-      print x['a']
+      print(x['a'])
 
   def testSchemaSurvivesComposition(self):
     x = gcl.loads("""
@@ -212,7 +211,7 @@ class TestSchemaInGCL(unittest.TestCase):
         B = A { foo = 'hello' };
         """)
     with self.assertRaises(exceptions.SchemaError):
-      print x['B']['foo']
+      print(x['B']['foo'])
 
   def testRequiredFieldsInComposition(self):
     x = gcl.loads("""
@@ -220,9 +219,9 @@ class TestSchemaInGCL(unittest.TestCase):
       ok_instance = SuperClass { x = 1 };
       failing_instance = SuperClass { y = 1 };
     """)
-    print x['ok_instance']
+    print(x['ok_instance'])
     with self.assertRaises(exceptions.SchemaError):
-      print x['failing_instance']
+      print(x['failing_instance'])
 
   def testClassesInTupleComposition(self):
     x = gcl.loads("""
@@ -258,22 +257,22 @@ class TestSchemaInGCL(unittest.TestCase):
   def testSpecifySchemaDeep(self):
     obj = gcl.loads("x : { a : required } = { b = 'foo' };")
     with self.assertRaises(exceptions.SchemaError):
-      print obj['x']
+      print(obj['x'])
 
   def testSpecifySchemaDeepInList(self):
     obj = gcl.loads("x : [{ a : int }] = [{ a = 'foo' }];")
     with self.assertRaises(exceptions.SchemaError):
-      print obj['x'][0]['a']
+      print(obj['x'][0]['a'])
 
   def testSchemaCanBeSetFromAbove(self):
     obj = gcl.loads("x : { x : { a : int }} = { x = { a = 'hoi' }}")
     with self.assertRaises(exceptions.SchemaError):
-      print obj['x']['x']['a']
+      print(obj['x']['x']['a'])
 
   def testSchemaCombinesFromAbove(self):
     obj = gcl.loads("x : { x : { a : int }} = { x = { a = 3; b : required }}")
     with self.assertRaises(exceptions.SchemaError):
-      print obj['x']['x']['a']
+      print(obj['x']['x']['a'])
 
 
 class TestExportVisibilityThroughSchemas(unittest.TestCase):

@@ -1,7 +1,10 @@
 """GCL standard library functions."""
 
+import functools
+
 from os import path
-import gcl
+
+from . import framework
 
 
 def eager(x):
@@ -31,7 +34,7 @@ class StringInterpolationProxy(object):
   def __getattr__(self, key):
     v = self.tup[self.key]
     # If this is a tuple, return another lazy proxy
-    if isinstance(v, gcl.Tuple):
+    if isinstance(v, framework.TupleLike):
       return StringInterpolationProxy(v, key)
     return v[key]
 
@@ -53,15 +56,6 @@ def fmt(str, args=None, env=None):
   return str.format(**proxies)
 
 
-class EnvironmentFunction(object):
-  """Wrapper class for a special function that can use the env."""
-  def __init__(self, fn):
-    self.fn = fn
-
-  def __call__(self, *args, **kwargs):
-    return self.fn(*args, **kwargs)
-
-
 def str_join(lst, sep=' '):
   """Behaves like string.join from Python 2."""
   return sep.join(str(x) for x in lst)
@@ -69,14 +63,15 @@ def str_join(lst, sep=' '):
 
 def compose_all(tups):
   """Compose all given tuples together."""
-  return reduce(lambda x, y: x.compose(y), map(gcl.make_tuple, tups), gcl.make_tuple({}))
+  from . import ast  # I weep for humanity
+  return functools.reduce(lambda x, y: x.compose(y), map(ast.make_tuple, tups), ast.make_tuple({}))
 
 
 builtin_functions = {
     'eager': eager,
     'path_join': path.join,
     'join': str_join,
-    'fmt': EnvironmentFunction(fmt),
+    'fmt': framework.EnvironmentFunction(fmt),
     'sum': sum,
     'compose_all': compose_all,
     'sorted': sorted

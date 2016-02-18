@@ -150,6 +150,11 @@ class Environment(object):
     return 'Environment(%s :: %r)' % (', '.join(self.names), self.parent)
 
 
+def make_env(x):
+  """Turn an dict into an Environment object."""
+  return x if isinstance(x, Environment) else Environment(x)
+
+
 class EmptyEnvironment(object):
   def __init__(self):
     self.ident = obj_ident()
@@ -182,6 +187,15 @@ class Cache(object):
     if key not in self._cache:
       self._cache[key] = thunk()
     return self._cache[key]
+
+
+class EnvironmentFunction(object):
+  """Wrapper class for a special function that can use the env."""
+  def __init__(self, fn):
+    self.fn = fn
+
+  def __call__(self, *args, **kwargs):
+    return self.fn(*args, **kwargs)
 
 
 eval_cache = Cache()

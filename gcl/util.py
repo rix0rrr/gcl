@@ -278,7 +278,6 @@ class InterpolatableJSON(framework.TupleLike):
     if isinstance(x, list):
       return [self._translate(y) for y in x]
     if framework.is_str(x):
-      print self.subs
       return x.format(**self.subs)
     return x
 

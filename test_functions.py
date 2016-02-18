@@ -44,7 +44,7 @@ class TestStringInterpolation(unittest.TestCase):
     empty = compose_all([]);
     combined = compose_all([{ a = 'a' }, { b = 'b' }]);
     ''')
-    self.assertEquals([], x['empty'].keys())
+    self.assertEquals([], list(x['empty'].keys()))
     self.assertEquals(['a', 'b'], sorted(x['combined'].keys()))
 
   def testSorted(self):

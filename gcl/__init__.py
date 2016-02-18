@@ -34,16 +34,8 @@ def loader_with_search_path(search_path):
   return runtime.NormalLoader(runtime.OnDiskFiles(search_path))
 
 
-def make_env(x):
-  """Turn an dict into an Environment object."""
-  return x if isinstance(x, Environment) else Environment(x)
-
-
-def make_tuple(x):
-  """Turn a dict-like object into a Tuple."""
-  if isinstance(x, runtime.Tuple):
-    return x
-  return ast.dict2tuple(x)
+make_env = framework.make_env
+make_tuple = ast.make_tuple
 
 
 # Default loader doesn't have any search path
@@ -88,7 +80,7 @@ def loads(s, filename=None, loader=None, implicit_tuple=True, env={}, schema=Non
   return mod_schema.validate(obj, schema)
 
 
-def load(filename, loader=None, implicit_tuple=True, env=None, schema=None):
+def load(filename, loader=None, implicit_tuple=True, env={}, schema=None):
   """Load and evaluate a GCL expression from a file."""
   with open(filename, 'r') as f:
     return loads(f.read(),
