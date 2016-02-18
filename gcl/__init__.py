@@ -14,9 +14,10 @@ from . import framework
 __version__ = '0.5.3'
 
 
-# Namespace copy for backwards compatibility
+# Namespace copy for backwards compatibility.
 GCLError = exceptions.GCLError
 ParseError = exceptions.ParseError
+EvaluationError = exceptions.EvaluationError
 
 is_tuple = framework.is_tuple
 is_list = framework.is_list
