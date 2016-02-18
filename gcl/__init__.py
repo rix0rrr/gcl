@@ -11,7 +11,7 @@ from . import runtime
 from . import util
 from . import framework
 
-__version__ = '0.6.0'
+__version__ = '0.6.1'
 
 
 # Namespace copy for backwards compatibility.
@@ -30,8 +30,21 @@ Tuple = runtime.Tuple
 InMemoryFiles = runtime.InMemoryFiles
 
 
+class NormalLoader(object):
+  def __init__(self, fs):
+    self.fs = fs
+    self.cache = framework.Cache()
+
+  def __call__(self, current_file, rel_path, env=None):
+    nice_path, full_path = self.fs.resolve(current_file, rel_path)
+
+    # Cache on full path, but tell script about nice path
+    do_load = lambda: loads(self.fs.load(full_path), filename=nice_path, loader=self, env=env)
+    return self.cache.get(full_path, do_load)
+
+
 def loader_with_search_path(search_path):
-  return runtime.NormalLoader(runtime.OnDiskFiles(search_path))
+  return NormalLoader(runtime.OnDiskFiles(search_path))
 
 
 make_env = framework.make_env
@@ -39,7 +52,7 @@ make_tuple = ast.make_tuple
 
 
 # Default loader doesn't have any search path
-default_loader = runtime.NormalLoader(runtime.OnDiskFiles())
+default_loader = NormalLoader(runtime.OnDiskFiles())
 
 #----------------------------------------------------------------------
 #  Top-level functions

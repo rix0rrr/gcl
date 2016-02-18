@@ -312,15 +312,3 @@ class InMemoryFiles(object):
     return self.file_dict[path]
 
 
-class NormalLoader(object):
-  def __init__(self, fs):
-    self.fs = fs
-    self.cache = framework.Cache()
-
-  def __call__(self, current_file, rel_path, env=None):
-    nice_path, full_path = self.fs.resolve(current_file, rel_path)
-
-    # Cache on full path, but tell script about nice path
-    do_load = lambda: loads(self.fs.load(full_path), filename=nice_path, loader=self, env=env)
-    return self.cache.get(full_path, do_load)
-
