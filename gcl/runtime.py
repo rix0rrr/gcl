@@ -2,6 +2,7 @@
 
 (Implementations of the protocols in gcl.framework).
 """
+import collections
 import functools
 from os import path
 
@@ -134,6 +135,13 @@ class Tuple(framework.TupleLike):
     """Return the names of fields that are required according to the schema."""
     return [m.name for m in self.__tuplenode.members if m.member_schema.required]
 
+  def _keys_and_privacy(self):
+    return {k: self.__tuplenode.member[k].member_schema.private for k in self.keys()}
+
+  def exportable_keys(self):
+    """Return a list of keys that are exportable from this tuple."""
+    return [k for k, v in self._keys_and_privacy().items() if not v]
+
   def __iter__(self):
     return iter(self.keys())
 
@@ -241,6 +249,17 @@ class CompositeTuple(Tuple):
     if thunk:
       return thunk, env
     raise exceptions.EvaluationError('Unknown key: %r in composite tuple %r' % (key, self))
+
+  def exportable_keys(self):
+    """Return a list of keys that are exportable from this tuple.
+
+    Returns all keys that are not private in any of the tuples.
+    """
+    keys = collections.defaultdict(list)
+    for tup in self._tuples:
+      for key, private in tup._keys_and_privacy().items():
+        keys[key].append(private)
+    return [k for k, ps in keys.items() if not any(ps)]
 
   def __repr__(self):
     return ' '.join(repr(t) for t in self.tuples)

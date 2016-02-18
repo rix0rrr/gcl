@@ -63,7 +63,7 @@ def to_python(value, seen=None):
     if value.ident in seen:
       raise RecursionException('to_python: infinite recursion while evaluating %r' % value)
     new_seen = seen.union([value.ident])
-    return {k: to_python(value[k], seen=new_seen) for k in value.keys()}
+    return {k: to_python(value[k], seen=new_seen) for k in value.exportable_keys()}
   if isinstance(value, dict):
     return {k: to_python(value[k], seen=seen) for k in value.keys()}
   if isinstance(value, list):

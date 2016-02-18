@@ -258,7 +258,8 @@ class RuntimeTupleNode(TupleNode):
   dictionaries to Tuple objects at runtime, so we need to invent a tuple-like object.
   """
   def __init__(self, dct):
-    self.members = [TupleMemberNode(SourceLocation.empty(), key, schema=schema.AnySchema(), value=value) for key, value in dct.items()]
+    self.members = [TupleMemberNode(SourceLocation.empty(), key, schema=NoSchemaNode(), value=value) for key, value in dct.items()]
+    self.member = {m.name: m for m in self.members}
 
 
 def dict2tuple(dct):
@@ -503,11 +504,23 @@ class NoSchemaNode(framework.Thunk):
   def __init__(self):
     self.ident = framework.obj_ident()
     self.required = False
+    self.private = False
 
   def eval(self, env):
     return schema.AnySchema()
 
 no_schema = NoSchemaNode()  # Singleton object
+
+
+class AnySchemaExprNode(framework.Thunk):
+  def __init__(self):
+    self.ident = framework.obj_ident()
+
+  def eval(self, env):
+    return schema.AnySchema()
+
+any_scheam_expr = AnySchemaExprNode()
+
 
 class MemberSchemaNode(framework.Thunk):
   """AST node for member schema definitions. Can be evaluated to produce runtime Schema classes.
@@ -540,8 +553,9 @@ class MemberSchemaNode(framework.Thunk):
 
 
   """
-  def __init__(self, sloc, required, expr):
+  def __init__(self, sloc, private, required, expr):
     self.sloc = sloc
+    self.private = private
     self.required = required
     self.expr = expr
 
@@ -658,8 +672,9 @@ list_ = bracketedList('[', ']', ',', expression, List)
 
 # Tuple
 inherit = (kw('inherit') - p.ZeroOrMore(identifier)).setParseAction(mkInherits)
-schema_spec = (p.Optional(p.Keyword('required').setParseAction(lambda: True), default=False)
-               - p.Optional(expression, default=no_schema)).setParseAction(pafac(MemberSchemaNode))
+schema_spec = (p.Optional(p.Keyword('private').setParseAction(lambda: True), default=False)
+               - p.Optional(p.Keyword('required').setParseAction(lambda: True), default=False)
+               - p.Optional(expression, default=any_scheam_expr)).setParseAction(pafac(MemberSchemaNode))
 optional_schema = p.Optional(p.Suppress(':') - schema_spec, default=no_schema)
 tuple_member = (inherit
                | (identifier + optional_schema + ~p.FollowedBy('=')).setParseAction(lambda s, loc, x: TupleMemberNode(SourceLocation(s, loc), x[0], x[1], Void(x[0], SourceLocation(s, loc))))

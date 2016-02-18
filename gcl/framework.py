@@ -73,6 +73,10 @@ class TupleLike(object):
   def has_key(self, name):
     return name in self
 
+  def exportable_keys(self):
+    """Return a list of keys that are exportable from this tuple."""
+    pass
+
 
 # Because we can't trust id(), it'll get reused, we number objects ourselves
 # for caching purposes.

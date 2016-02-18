@@ -4,6 +4,7 @@ from os import path
 import gcl
 from gcl import schema
 from gcl import exceptions
+from gcl import util
 
 
 class TestSchemaObjects(unittest.TestCase):
@@ -276,5 +277,24 @@ class TestSchemaInGCL(unittest.TestCase):
 
 
 class TestExportVisibilityThroughSchemas(unittest.TestCase):
-  """Test the annotation of schemas with exportable fields for JSON exports."""
-  pass
+  """Test the annotation of schemas with non-exportable fields for JSON exports."""
+
+  def testNoExportFieldFromTuple(self):
+    obj = gcl.loads("x : private = 3; y = 5")
+    x = util.to_python(obj)
+    self.assertEquals({'y': 5}, x)
+
+  def testNoExportFieldFromCompositeTuple(self):
+    obj = gcl.loads("x = { x : private = 3 } { y = 5 }")
+    x = util.to_python(obj['x'])
+    self.assertEquals({'y': 5}, x)
+
+  def testNoExportFieldFromCompositeTupleWithPrivateOverride(self):
+    obj = gcl.loads("x = { x = 3; y = 5 } { x : private }")
+    x = util.to_python(obj['x'])
+    self.assertEquals({'y': 5}, x)
+
+  def testNoExportFieldFromTupleComposedWithDict(self):
+    obj = gcl.loads("x = { x : private = 3 } Y", env={'Y': {'y': 5}})
+    x = util.to_python(obj['x'])
+    self.assertEquals({'y': 5}, x)
