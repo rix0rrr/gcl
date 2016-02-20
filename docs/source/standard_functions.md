@@ -18,30 +18,42 @@ Example:
     port = 1234;
     address = fmt '{host}:{port}';
 
-### `sorted(list)`
-
-Return `list` in sorted order.
-
 ### `compose_all(list_of_tuples)`
 
 Returns the composition of a variable list of tuples.
 
-### `path_join(str, str, [str, [...]])`
+### `eager(tuple)`
 
-Call Python's `os.path.join` to build a complete path from parts.
+Turn a lazy GCL tuple into a dict. This eagerly evaluates all keys, and forces the object to be
+complete. This will also force a schema evaluation of all keys.
+
+### `flatten(list_of_lists)`
+
+Flatten a list of lists into a single list.
+
+### `has(tuple, key)`
+
+Return whether a given tuple has a key, and the key has a value.
 
 ### `join(list, [separator])` 
 
 Combine a list of string using by separator (defaults to a single space if not specified).
 
+### `path_join(str, str, [str, [...]])`
+
+Call Python's `os.path.join` to build a complete path from parts.
+
+### `split(str, [separator])`
+
+Split a string on a separator (defaults to a single space if omitted).
+
+### `sorted(list)`
+
+Return `list` in sorted order.
+
 ### `sum(list)`
 
 Sums a list of numbers.
-
-### `eager(tuple)`
-
-Turn a lazy GCL tuple into a dict. This eagerly evaluates all keys, and forces the object to be
-complete.
 
 ## Custom functions
 

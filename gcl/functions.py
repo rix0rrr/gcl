@@ -1,5 +1,6 @@
 """GCL standard library functions."""
 
+import itertools
 import functools
 
 from os import path
@@ -67,6 +68,30 @@ def compose_all(tups):
   return functools.reduce(lambda x, y: x.compose(y), map(ast.make_tuple, tups), ast.make_tuple({}))
 
 
+def split(string, sep=' '):
+  """Splits a string."""
+  return string.split(sep)
+
+
+def has_key(tup, key):
+  """Return whether a given tuple has a key and the key is bound."""
+  if isinstance(tup, framework.TupleLike):
+    return tup.is_bound(key)
+  if isinstance(tup, dict):
+    return key in tup
+  raise ValueError('Not a tuple-like object: %r' % tup)
+
+
+def flatten(list_of_lists):
+  """Flatten a list of lists."""
+  ret = []
+  for lst in list_of_lists:
+    if not isinstance(lst, list):
+      raise ValueError('%r is not a list' % lst)
+    ret.extend(lst)
+  return ret
+
+
 builtin_functions = {
     'eager': eager,
     'path_join': path.join,
@@ -74,7 +99,10 @@ builtin_functions = {
     'fmt': framework.EnvironmentFunction(fmt),
     'sum': sum,
     'compose_all': compose_all,
-    'sorted': sorted
+    'sorted': sorted,
+    'split': split,
+    'has': has_key,
+    'flatten': flatten
     }
 
 
