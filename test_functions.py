@@ -98,5 +98,17 @@ class TestStringInterpolation(unittest.TestCase):
     list = flatten ["abc"]
     ''')
 
-    with self.assertRaises(ValueError):
+    with self.assertRaises(gcl.EvaluationError):
       print(x['list'])
+
+  def testFunctionErrorsAreTraced(self):
+    x = gcl.loads('''
+    list = flatten ["abc"]
+    ''')
+
+    try:
+      print(x['list'])
+      self.fail('Should have thrown')
+    except Exception as e:
+      print(str(e))
+      self.assertTrue('flatten ["abc"]' in str(e))

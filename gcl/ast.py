@@ -175,7 +175,7 @@ class List(framework.Thunk):
   """A GCL list."""
   def __init__(self, values):
     self.ident = framework.obj_ident()
-    self.values = values
+    self.values = list(values)
 
   def eval(self, env):
     return [framework.eval(v, env) for v in self.values]
@@ -268,7 +268,8 @@ def dict2tuple(dct):
 
 class Application(framework.Thunk):
   """Function application."""
-  def __init__(self, left, right):
+  def __init__(self, location, left, right):
+    self.location = location
     self.ident = framework.obj_ident()
     self.left = left
     self.right = right
@@ -304,7 +305,11 @@ class Application(framework.Thunk):
     if isinstance(fn, framework.EnvironmentFunction):
       return fn(*arg, env=env)
 
-    return fn(*arg)
+    try:
+      return fn(*arg)
+    except Exception as e:
+      # Wrap exceptions
+      raise exceptions.EvaluationError(self.location.error_in_context('while calling \'%r\'' % self), e)
 
   def __repr__(self):
     return '%r(%r)' % (self.left, self.right)
@@ -329,16 +334,17 @@ class Application(framework.Thunk):
     raise exceptions.EvaluationError("Can't apply list (%r) to argument (%r): integer expected, got %r" % (self.left, self.right, right))
 
 
-def mkApplications(atoms):
+def mkApplications(s, loc, atoms):
   """Make a sequence of applications from a list of tokens.
 
   atoms is a list of atoms, which will be handled left-associatively. E.g:
 
       ['foo', [], []] == foo()() ==> Application(Application('foo', []), [])
   """
+  location = SourceLocation(s, loc)
   atoms = list(atoms)
   while len(atoms) > 1:
-    atoms[0:2] = [Application(atoms[0], atoms[1])]
+    atoms[0:2] = [Application(location, atoms[0], atoms[1])]
 
   # Nothing left to apply
   return atoms[0]
