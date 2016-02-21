@@ -581,6 +581,39 @@ class TestScoping(unittest.TestCase):
       pass
 
 
+class TestNegativeAndMinus(unittest.TestCase):
+  def testMinus(self):
+    x = gcl.reads('3 - 2', implicit_tuple=False)
+    print x
+    self.assertEquals(1, parse('3 - 2'))
+
+  def testMinusWithVariable(self):
+    obj = gcl.loads('''
+      x = 3;
+      y = x - 2;
+    ''')
+    self.assertEquals(1, obj['y'])
+
+  def testMinusWithMoreOperations(self):
+    obj = gcl.loads('''
+      x = -6;
+      y = x / -2;
+    ''')
+    self.assertEquals(3, obj['y'])
+
+  def testFunctionToNegativeNumber(self):
+    obj = gcl.loads('''
+    y = x(-2);
+    ''', env={'x': lambda x: x + 3})
+    self.assertEquals(1, obj['y'])
+
+  def testUnaryOperator(self):
+    obj = gcl.loads('''
+    y = -x;
+    ''', env={'x': -1})
+    self.assertEquals(1, obj['y'])
+
+
 class TestStandardLibrary(unittest.TestCase):
   def testPathJoin(self):
     self.assertEquals('a/b/c', parse("path_join('a', 'b', 'c')"))

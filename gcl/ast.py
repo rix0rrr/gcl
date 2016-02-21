@@ -749,9 +749,6 @@ applic1 = (atom - p.ZeroOrMore(arg_list)).setParseAction(mkApplications)
 # Dereferencing of an expression (obj.bar)
 deref << (applic1 - p.ZeroOrMore(p.Suppress('.') - identifier)).setParseAction(mkDerefs)
 
-# Juxtaposition function application (fn arg), must be 1-arg every time
-applic2 = (deref - p.ZeroOrMore(deref)).setParseAction(mkApplications)
-
 # All binary operators at various precedence levels go here:
 # This piece of code does the moral equivalent of:
 #
@@ -759,12 +756,15 @@ applic2 = (deref - p.ZeroOrMore(deref)).setParseAction(mkApplications)
 #     E = T+T | T-T | T
 #
 # etc.
-term = applic2
+term = deref
 for op_level in functions.binary_operators:
   operator_syms = ' '.join(op_level.keys())
   term = (term - p.ZeroOrMore(p.oneOf(operator_syms) - term)).setParseAction(mkBinOps)
 
-expression << term
+# Juxtaposition function application (fn arg), must be 1-arg every time
+applic2 = (term - p.ZeroOrMore(term)).setParseAction(mkApplications)
+
+expression << applic2
 
 # Two entry points: start at an arbitrary expression, or expect the top-level
 # scope to be a tuple.
