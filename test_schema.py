@@ -274,6 +274,11 @@ class TestSchemaInGCL(unittest.TestCase):
     with self.assertRaises(exceptions.SchemaError):
       print(obj['x']['x']['a'])
 
+  def testDontNeedToWriteSpace(self):
+    """It's annoying me to have to write a space for schema definitions."""
+    obj = gcl.loads('x: int = 3;')
+    print(obj['x'])
+
 
 class TestExportVisibilityThroughSchemas(unittest.TestCase):
   """Test the annotation of schemas with non-exportable fields for JSON exports."""

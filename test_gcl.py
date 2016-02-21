@@ -145,6 +145,14 @@ class TestTuple(unittest.TestCase):
     with self.assertRaises(gcl.ParseError):
       parse('{ x = 3; x = 4 }')
 
+  def testCanHaveColonAtTheEndWhenQuoting(self):
+    obj = parse_tuple('`what:` = 3')
+    self.assertEquals('what:', list(obj.keys())[0])
+
+  def testCanHaveSubtractionInAnIdentifier(self):
+    obj = parse_tuple('he110-1orld = 3')
+    self.assertEquals(3, obj['he110-1orld'])
+
 
 class TestApplication(unittest.TestCase):
   def setUp(self):

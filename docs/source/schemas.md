@@ -54,9 +54,6 @@ defined:
     bool
     null
 
-> Note: Since `:` is a valid part of an identifier, there must be a space
-> between the identifier and the `:` of the schema specification.
-
 ### Lists
 
 Specifying that a key must be a list looks is done by specifying an example type

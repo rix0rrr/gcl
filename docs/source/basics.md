@@ -163,3 +163,25 @@ inside the composition) by referring to a tuple called `base.`. For example:
             speed = 'fast';
         }
     };
+
+Identifiers
+-----------
+
+Identifiers should start with a letter, may contain the special characters `-` and `:`, but may not
+_end_ in those characters (and because we're all programmers, `_` counts as a letter ;). For
+arbitrary identifiers, quote them with ````.
+
+Valid identifiers:
+
+    hello
+    hell0
+    _hello
+    hello-world
+    hello:world
+    he110-1ord      # This is NOT a subtraction
+
+The following identifiers need quoting:
+
+    `hello:`
+    `world-`
+    `1-1ello`

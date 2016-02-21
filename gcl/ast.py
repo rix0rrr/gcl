@@ -670,7 +670,12 @@ expression = p.Forward()
 
 comment = '#' + p.restOfLine
 
-identifier = p.Regex(r'[a-zA-Z_][a-zA-Z0-9_:-]*')
+quotedIdentifier = p.QuotedString('`', multiline=False)
+
+# - Must start with an alphascore
+# - May contain alphanumericscores and special characters such as : and -
+# - Must not end in a special character
+identifier = quotedIdentifier | p.Regex(r'[a-zA-Z_]([a-zA-Z0-9_:-]*[a-zA-Z0-9_])?')
 
 # Contants
 integer = p.Word(p.nums).setParseAction(do(head, int, Constant))
