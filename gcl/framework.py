@@ -46,7 +46,7 @@ def eval(thunk, env):
     raise exceptions.EvaluationError('Reference cycle')
 
   with Activation(key):
-    return eval_cache.get(key, lambda: thunk.eval(env))
+    return eval_cache.get(key, thunk.eval, env)
 
 
 class TupleLike(object):
@@ -183,9 +183,9 @@ class Cache(object):
   def __init__(self):
     self._cache = {}
 
-  def get(self, key, thunk):
+  def get(self, key, getter, *args, **kwargs):
     if key not in self._cache:
-      self._cache[key] = thunk()
+      self._cache[key] = getter(*args, **kwargs)
     return self._cache[key]
 
 

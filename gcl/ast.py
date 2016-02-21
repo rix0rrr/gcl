@@ -235,7 +235,7 @@ class TupleNode(framework.Thunk):
     self._cache = framework.Cache()
 
   def eval(self, env):
-    return self._cache.get(env.ident, lambda: self._make_tuple(env))
+    return self._cache.get(env.ident, self._make_tuple, env)
 
   def _make_tuple(self, env):
     """Instantiate the Tuple based on this TupleNode."""
@@ -275,9 +275,6 @@ class Application(framework.Thunk):
     self.right = right
 
   def eval(self, env):
-    # FIXME: There is a special case here--if the left and right part are tuples, we need to hold
-    # off applying the schema validation until we've evaluated the compound structure. In all other
-    # cases, we just apply the schemas immediately.
     fn = framework.eval(self.left, env)
     arg = framework.eval(self.right, env)
 
@@ -598,7 +595,9 @@ def schema_spec_from_tuple(tup):
   """Return the schema spec from a run-time tuple."""
   if hasattr(tup, 'get_schema_spec'):
     # Tuples have a TupleSchema field that contains a model of the schema
-    return schema.from_spec({'fields': TupleSchemaAccess(tup), 'required': tup.get_required_fields()})
+    return schema.from_spec({
+        'fields': TupleSchemaAccess(tup),
+        'required': tup.get_required_fields()})
   return schema.AnySchema()
 
 

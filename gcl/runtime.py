@@ -68,7 +68,7 @@ class Tuple(framework.TupleLike):
     """
     return self.__env_cache.get(
             current_scope.ident,
-            lambda: framework.Environment(current_scope, self.__parent_env, names=self.keys()))
+            framework.Environment, current_scope, self.__parent_env, names=self.keys())
 
   def keys(self):
     return self.__items.keys()
