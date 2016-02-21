@@ -126,11 +126,20 @@ class TupleSchema(Schema):
     self.field_schemas = field_schemas
     self.required_fields = required_fields
 
+    # I would have loved to do parameter validation here, but that means we can't do recursive tuple
+    # schemas (i.e., X = { x : X }). So unfortunately we'll have to defer parameter validation until
+    # access. Anyway, this was only used to catch programming errors :).
+
+    # self._validate_params()
+
+  def _validate_params(self):
     for v in self.field_schemas.values():
       if not isinstance(v, Schema):
         raise ValueError('subschemas should be instances of Schema, got %r' % v)
 
   def validate(self, value):
+    self._validate_params()
+
     if not framework.is_tuple(value):
       raise exceptions.SchemaError('%r should be a tuple' % value)
 

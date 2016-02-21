@@ -73,3 +73,12 @@ Using GPath in your own script looks like this:
 
     # A deep copy of all selected values into a dict
     print(results.deep())
+
+
+Thread safety
+-------------
+
+Currently, GCL evaluation is _not_ thread safe. Unfortunately we need to store some global state to
+track evaluations so we can detect infinite recursion inside the model.
+
+Let me know if this poses a problem for you, we can make it into threadlocals without much issue.

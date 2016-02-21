@@ -54,7 +54,7 @@ class TestSchemaObjects(unittest.TestCase):
   def testTupleSchemaCorrectSubSchemaType(self):
     """To make sure we can't use tuple schemas incorrectly."""
     with self.assertRaises(ValueError):
-      schema.from_spec({'fields': {'a': 'string'}})
+      schema.from_spec({'fields': {'a': 'string'}}).validate({})
 
   def testTupleSchemaSubSchema(self):
     s = schema.from_spec({'fields': {'a': schema.from_spec('string')}})
@@ -278,6 +278,25 @@ class TestSchemaInGCL(unittest.TestCase):
     """It's annoying me to have to write a space for schema definitions."""
     obj = gcl.loads('x: int = 3;')
     print(obj['x'])
+
+  def testRecursiveSchemaReference(self):
+    obj = gcl.loads('''
+    LinkedList = {
+      value : required int;
+      next : LinkedList;
+    };
+
+    one_two_three = LinkedList {
+      value = 1;
+      next = LinkedList {
+        value = 2;
+        next = LinkedList {
+          value = 3;
+        };
+      };
+    };
+    ''')
+    self.assertEquals(3, obj['one_two_three']['next']['next']['value'])
 
 
 class TestExportVisibilityThroughSchemas(unittest.TestCase):

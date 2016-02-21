@@ -41,9 +41,9 @@ def eval(thunk, env):
     evaluating a tuple only for its schema information. At that point, we're not interested if the
     object is value-complete.
   """
-  key = (thunk.ident, env.ident)
-  if key in Activation.stack:
-    raise exceptions.EvaluationError('Reference cycle')
+  key = Activation.key(thunk, env)
+  if Activation.activated(key):
+    raise exceptions.RecursionError('Reference cycle')
 
   with Activation(key):
     return eval_cache.get(key, thunk.eval, env)
@@ -89,26 +89,33 @@ def obj_ident():
 
 
 class Activation(object):
-  stack = {}
-  no_schema_validation = 0
+  """Activation tracker.
 
-  def __init__(self, key, no_schema_validation=False):
+  An activation set will contain all the evals() that are activated at any point in time, to detect
+  infinite recursion during evaluation.
+
+  This class has global data because we can't really pass references through all the various ways
+  that we can start evaluating GCL constructs (notably dict element accessors), so it must be
+  out-of-band in a global variable. This is the reason why GCL evaluation is NOT thread safe.
+  """
+  activation_set = {}
+
+  def __init__(self, key):
     self.key = key
-    self.no_schema_validation = no_schema_validation
 
   def __enter__(self):
-    self.stack[self.key] = self
-
-    # Increase 'no_schema_validation' level
-    if self.no_schema_validation:
-      Activation.no_schema_validation += 1
+    self.activation_set[self.key] = self
 
   def __exit__(self, value, type, exc):
-    del self.stack[self.key]
+    del self.activation_set[self.key]
 
-    # Decrease 'no_schema_validation' level
-    if self.no_schema_validation:
-      Activation.no_schema_validation -= 1
+  @classmethod
+  def activated(cls, key):
+    return key in cls.activation_set
+
+  @classmethod
+  def key(cls, thunk, env):
+    return (thunk.ident, env.ident)
 
 
 class Environment(object):

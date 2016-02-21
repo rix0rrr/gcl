@@ -126,7 +126,8 @@ class Tuple(framework.TupleLike):
     member_node = self.__tuplenode.member.get(key, None)
     if not member_node:
       return schema.AnySchema()
-    s = member_node.member_schema.eval(self.env(self))
+
+    s = framework.eval(member_node.member_schema, self.env(self))
     if not isinstance(s, schema.Schema):
       raise ValueError('Node %r with schema node %r should evaluate to Schema, got %r' % (member_node, member_node.member_schema, s))
     return s

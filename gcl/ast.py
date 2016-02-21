@@ -561,6 +561,7 @@ class MemberSchemaNode(framework.Thunk):
     self.private = private
     self.required = required
     self.expr = expr
+    self.ident = framework.obj_ident()
 
   def eval(self, env):
     return make_schema_from(self.expr, env)
@@ -571,7 +572,7 @@ class MemberSchemaNode(framework.Thunk):
 
 
 class TupleSchemaAccess(object):
-  """A class that behaves like a dictionary and returns member schemas from a tuple (recursively)."""
+  """A class that behaves like a dictionary and returns member schemas from a tuple."""
   def __init__(self, tuple):
     self.tuple = tuple
 
