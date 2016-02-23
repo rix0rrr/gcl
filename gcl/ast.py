@@ -292,8 +292,8 @@ class Application(framework.Thunk):
       return self.applyTuple(fn, arg, env)
 
     # List application
-    if isinstance(fn, list):
-      return self.applyList(fn, arg)
+    if isinstance(fn, list) or framework.is_str(fn):
+      return self.applyIndex(fn, arg)
 
     # Any other callable type, just use as a Python function
     if not callable(fn):
@@ -319,16 +319,16 @@ class Application(framework.Thunk):
 
     return tuple(right)
 
-  def applyList(self, lst, right):
+  def applyIndex(self, lst, right):
     """Apply a list to something else."""
     if len(right) != 1:
-      raise exceptions.EvaluationError('List (%r) can only be applied to one argument, got %r' % (self.left, self.right))
+      raise exceptions.EvaluationError('%r can only be applied to one argument, got %r' % (self.left, self.right))
     right = right[0]
 
     if isinstance(right, int):
       return lst[right]
 
-    raise exceptions.EvaluationError("Can't apply list (%r) to argument (%r): integer expected, got %r" % (self.left, self.right, right))
+    raise exceptions.EvaluationError("Can't apply %r to argument (%r): integer expected, got %r" % (self.left, self.right, right))
 
 
 def mkApplications(s, loc, atoms):
