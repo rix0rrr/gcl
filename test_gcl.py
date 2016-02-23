@@ -590,7 +590,6 @@ class TestScoping(unittest.TestCase):
 class TestPrecedence(unittest.TestCase):
   def testMinus(self):
     x = gcl.reads('3 - 2', implicit_tuple=False)
-    print x
     self.assertEquals(1, parse('3 - 2'))
 
   def testMinusWithVariable(self):
