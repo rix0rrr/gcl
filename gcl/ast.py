@@ -283,19 +283,19 @@ class Application(framework.Thunk):
   def eval(self, env):
     fn = framework.eval(self.left, env)
 
-    # Tuple application
-    if isinstance(fn, framework.TupleLike):
-      return self.applyTuple(fn, self.eval_right_as_list(env), env)
-
-    # List application
-    if isinstance(fn, list) or framework.is_str(fn):
-      return self.applyIndex(fn, self.eval_right_as_list(env))
-
-    # Any other callable type, just use as a Python function
-    if not callable(fn):
-      raise exceptions.EvaluationError('Result of %r (%r) not callable' % (self.left, fn))
-
     try:
+      # Tuple application
+      if isinstance(fn, framework.TupleLike):
+        return self.applyTuple(fn, self.eval_right_as_list(env), env)
+
+      # List application
+      if isinstance(fn, list) or framework.is_str(fn):
+        return self.applyIndex(fn, self.eval_right_as_list(env))
+
+      # Any other callable type, just use as a Python function
+      if not callable(fn):
+        raise exceptions.EvaluationError('Result of %r (%r) not callable' % (self.left, fn))
+
       return call_fn(fn, self.right_as_list(), env)
     except Exception as e:
       # Wrap exceptions
