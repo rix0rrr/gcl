@@ -43,7 +43,7 @@ def main(argv=None, stdin=None):
     selectors = args.root.split('.') if args.root else []
     selected = select(plain, selectors)
 
-    sys.stdout.write(json.dumps(selected))
+    sys.stdout.write(json.dumps(selected, indent=2))
   except (gcl.ParseError, RuntimeError) as e:
     sys.stderr.write(str(e) + '\n')
     sys.exit(1)

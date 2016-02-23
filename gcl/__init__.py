@@ -3,6 +3,9 @@ GCL -- Generic Configuration Language
 
 See README.md for an explanation of GCL and concepts.
 """
+from os import path
+import json
+
 from . import functions
 from . import exceptions
 from . import schema
@@ -10,6 +13,7 @@ from . import ast
 from . import runtime
 from . import util
 from . import framework
+
 
 __version__ = '0.6.4'
 
@@ -39,7 +43,12 @@ class NormalLoader(object):
     nice_path, full_path = self.fs.resolve(current_file, rel_path)
 
     # Cache on full path, but tell script about nice path
-    do_load = lambda: loads(self.fs.load(full_path), filename=nice_path, loader=self, env=env)
+    if path.splitext(nice_path)[1] == '.json':
+      # Load as JSON
+      do_load = lambda: json.loads(self.fs.load(full_path))
+    else:
+      # Load as GCL
+      do_load = lambda: loads(self.fs.load(full_path), filename=nice_path, loader=self, env=env)
     return self.cache.get(full_path, do_load)
 
 
