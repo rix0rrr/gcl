@@ -1,5 +1,5 @@
-Model Schemas
-=============
+Schemas
+=======
 
 When working in a larger project, when multiple people are involved, as many
 automatic sanity checks should be added to a code base as possible. Static
@@ -37,11 +37,11 @@ Schema specification for scalars looks like this:
     Human = {
         hands : required int;
         fingers = 5 * hands;
-    }
+    };
 
     lancelot = Human {
         hands = 2;
-    }
+    };
 
 When mixing the tuple `Human` into another tuple, a value for `hands` must be
 specified, and it must be an integer. Failing to provide that key will throw an

@@ -1,0 +1,81 @@
+# First we'll make a function to make ranges to iterate over.
+# (range { n = 5 }).value == [0, 1, 2, 3, 4]
+range = {
+    n; i = 0;
+
+    next_i = i + 1;
+    value = if i < n then [i] + (range { i = next_i; inherit n }).value else [];
+};
+
+# Then we need a function to determine liveness. We'll expect a list
+# of chars, either 'x' or '.', and output another char.
+# (liveness { me = 'x'; neighbours = ['x', 'x', 'x', '.', '.', '.'] }).next == 'x'
+liveness = {
+    me; neighbours;
+
+    alive_neighbours = sum([1 for n in neighbours if n == 'x']);
+    alive = (me == 'x' and 2 <= alive_neighbours and alive_neighbours <= 3)
+         or (me == '.' and alive_neighbours == 3);
+    next = if alive then 'x' else '.';
+};
+
+# On to something more complicated. If we specify the board as a list of strings
+# (because that will print nicely), we want to find the neighbours of a cell
+# given some coordinates:
+find_neighbours = {
+    board; i; j;
+    
+    cells = [
+        cell { x = i - 1; y = j - 1 },
+        cell { x = i;     y = j - 1 },
+        cell { x = i + 1; y = j - 1 },
+        cell { x = i - 1; y = j     },
+        cell { x = i + 1; y = j     },
+        cell { x = i - 1; y = j + 1 },
+        cell { x = i;     y = j + 1 },
+        cell { x = i + 1; y = j + 1 }
+    ];
+
+    chars = [c.char for c in cells];
+
+    # Helper function for accessing cells
+    cell = {
+        x; y;
+
+        H = len board;
+        my_y = ((H + y) % H);
+        W = len (board my_y);
+        char = board (my_y) ((W + x) % W);
+    }
+};
+
+# This function calculates the next state of the board given an input board.
+next_board = {
+    board;
+
+    rows = (range { n = len board }).value;
+    value = [(row { inherit j }).value for j in rows];
+
+    row = {
+        j;
+
+        cols = (range { n = len board(j) }).value;
+        chars = [(cell { inherit i }).value for i in cols];
+        value = join(chars, '');
+
+        cell = {
+            i;
+            neighbours = (find_neighbours { inherit board i j }).chars;
+            me = board j i;
+            value = (liveness { inherit me neighbours }).next;
+        };
+    };
+};
+
+input = {
+    board = include 'board.json';
+};
+
+output = {
+    board = (next_board { board = input.board }).value;
+};

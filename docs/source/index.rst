@@ -20,3 +20,4 @@ Contents:
    standard_functions
    editing
    motivation
+   expressive_power
