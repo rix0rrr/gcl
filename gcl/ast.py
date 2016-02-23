@@ -227,7 +227,7 @@ class TupleNode(framework.Thunk):
   def __init__(self, sloc, *members):
     duplicates = [name for name, ns in itertools.groupby(sorted(m.name for m in members)) if len(list(ns)) > 1]
     if duplicates:
-      raise exceptions.ParseError('Key %s occurs more than once in tuple at %s' % (', '.join(duplicates), sloc))
+      raise exceptions.ParseError('Key %s occurs more than once in tuple at %s' % (', '.join(duplicates), sloc.error_in_context('')))
 
     self.ident = framework.obj_ident()
     self.members = members
