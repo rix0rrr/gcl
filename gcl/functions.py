@@ -112,7 +112,6 @@ builtin_functions = {
     'len': len
     }
 
-
 # Binary operators, by precedence level
 binary_operators_before_juxtaposition = [
     {
@@ -132,8 +131,9 @@ binary_operators_after_juxtaposition = [
       '>': lambda x, y: x > y,
       '>=': lambda x, y: x >= y,
     }, {
-      'and': lambda x, y: x and y,
-      'or': lambda x, y: x or y,
+      # These take thunks
+      'and': framework.LazyFunction(lambda x, y: x() and y()),
+      'or': framework.LazyFunction(lambda x, y: x() or y()),
     }]
 all_binary_operators = {
     k: v

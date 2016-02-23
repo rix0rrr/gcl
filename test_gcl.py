@@ -360,6 +360,12 @@ class TestExpressions(unittest.TestCase):
     }''')
     self.assertEquals(6, x['y'])
 
+  def testAndIsLazy(self):
+    x = gcl.loads('''
+    x = false and y;
+    ''')
+    self.assertEquals(False, x['x'])
+
 
 class TestScoping(unittest.TestCase):
   def testOuterValueAvailableInInnerOne(self):

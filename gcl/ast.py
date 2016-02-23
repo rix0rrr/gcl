@@ -135,8 +135,8 @@ def mkInherits(tokens):
   return [TupleMemberNode(SourceLocation('', 0), t, no_schema, Inherit(t)) for t in list(tokens)]
 
 
-class Constant(framework.Thunk):
-  """A GCL constant expression."""
+class Literal(framework.Thunk):
+  """A GCL literal expression."""
   def __init__(self, value):
     self.ident = framework.obj_ident()
     self.value = value
@@ -274,36 +274,29 @@ class Application(framework.Thunk):
     self.left = left
     self.right = right
 
+  def right_as_list(self):
+    return self.right if isinstance(self.right, ArgList) else ArgList([self.right])
+
+  def eval_right_as_list(self, env):
+    return framework.eval(self.right_as_list(), env)
+
   def eval(self, env):
     fn = framework.eval(self.left, env)
-    arg = framework.eval(self.right, env)
-
-    # Normalize arg into a list of arguments, which it already is if the
-    # right-hand side is an ArgList, but not otherwise.
-    if not isinstance(self.right, ArgList):
-      arg = [arg]
-
-    # We now have evaluated and unevaluated versions of operator and operands.
-    # The evaluated ones will be used for processing, the unevaluated ones will
-    # be used for error reporting.
 
     # Tuple application
     if isinstance(fn, framework.TupleLike):
-      return self.applyTuple(fn, arg, env)
+      return self.applyTuple(fn, self.eval_right_as_list(env), env)
 
     # List application
     if isinstance(fn, list) or framework.is_str(fn):
-      return self.applyIndex(fn, arg)
+      return self.applyIndex(fn, self.eval_right_as_list(env))
 
     # Any other callable type, just use as a Python function
     if not callable(fn):
       raise exceptions.EvaluationError('Result of %r (%r) not callable' % (self.left, fn))
 
-    if isinstance(fn, framework.EnvironmentFunction):
-      return fn(*arg, env=env)
-
     try:
-      return fn(*arg)
+      return call_fn(fn, self.right_as_list(), env)
     except Exception as e:
       # Wrap exceptions
       raise exceptions.EvaluationError(self.location.error_in_context('while calling \'%r\'' % self), e)
@@ -354,11 +347,10 @@ class UnOp(framework.Thunk):
     self.right = right
 
   def eval(self, env):
-    right = framework.eval(self.right, env)
     fn = functions.unary_operators.get(self.op, None)
     if fn is None:
       raise exceptions.EvaluationError('Unknown unary operator: %s' % self.op)
-    return fn(right)
+    return call_fn(fn, ArgList([self.right]), env)
 
   def __repr__(self):
     return '%s%r' % (self.op, self.right)
@@ -376,14 +368,11 @@ class BinOp(framework.Thunk):
     self.right = right
 
   def eval(self, env):
-    left = framework.eval(self.left, env)
-    right = framework.eval(self.right, env)
-
     fn = functions.all_binary_operators.get(self.op, None)
     if fn is None:
       raise exceptions.EvaluationError('Unknown operator: %s' % self.op)
 
-    return fn(left, right)
+    return call_fn(fn, ArgList([self.left, self.right]), env)
 
   def __repr__(self):
     return ('%r %s %r' % (self.left, self.op, self.right))
@@ -395,6 +384,21 @@ def mkBinOps(tokens):
     assert(len(tokens) >= 3)
     tokens[0:3] = [BinOp(tokens[0], tokens[1], tokens[2])]
   return tokens[0]
+
+
+def call_fn(fn, arglist, env):
+  """Call a function, respecting all the various types of functions that exist."""
+  if isinstance(fn, framework.LazyFunction):
+    # The following looks complicated, but this is necessary because you can't
+    # construct closures over the loop variable directly.
+    thunks = [(lambda thunk: lambda: framework.eval(thunk, env))(th) for th in arglist.values]
+    return fn(*thunks)
+
+  evaled_args = framework.eval(arglist, env)
+  if isinstance(fn, framework.EnvironmentFunction):
+    return fn(*evaled_args, env=env)
+
+  return fn(*evaled_args)
 
 
 class Deref(framework.Thunk):
@@ -678,11 +682,11 @@ quotedIdentifier = p.QuotedString('`', multiline=False)
 identifier = quotedIdentifier | p.Regex(r'[a-zA-Z_]([a-zA-Z0-9_:-]*[a-zA-Z0-9_])?')
 
 # Contants
-integer = p.Word(p.nums).setParseAction(do(head, int, Constant))
-floating = p.Regex(r'\d*\.\d+').setParseAction(do(head, float, Constant))
-dq_string = p.QuotedString('"', escChar='\\', multiline=True).setParseAction(do(head, Constant))
-sq_string = p.QuotedString("'", escChar='\\', multiline=True).setParseAction(do(head, Constant))
-boolean = (p.Keyword('true') | p.Keyword('false')).setParseAction(do(head, mkBool, Constant))
+integer = p.Word(p.nums).setParseAction(do(head, int, Literal))
+floating = p.Regex(r'\d*\.\d+').setParseAction(do(head, float, Literal))
+dq_string = p.QuotedString('"', escChar='\\', multiline=True).setParseAction(do(head, Literal))
+sq_string = p.QuotedString("'", escChar='\\', multiline=True).setParseAction(do(head, Literal))
+boolean = (p.Keyword('true') | p.Keyword('false')).setParseAction(do(head, mkBool, Literal))
 null = p.Keyword('null').setParseAction(Null)
 
 # List

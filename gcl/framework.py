@@ -196,13 +196,23 @@ class Cache(object):
     return self._cache[key]
 
 
-class EnvironmentFunction(object):
-  """Wrapper class for a special function that can use the env."""
+class FunctionMarker(object):
+  """Base class for function markers"""
   def __init__(self, fn):
     self.fn = fn
 
   def __call__(self, *args, **kwargs):
     return self.fn(*args, **kwargs)
+
+
+class EnvironmentFunction(FunctionMarker):
+  """Marker class for a special function that can use the env."""
+  pass
+
+
+class LazyFunction(FunctionMarker):
+  """Marker class for functions that take thunks."""
+  pass
 
 
 eval_cache = Cache()
