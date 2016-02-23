@@ -581,13 +581,14 @@ class TestScoping(unittest.TestCase):
       pass
 
 
-class TestNegativeAndMinus(unittest.TestCase):
+class TestPrecedence(unittest.TestCase):
   def testMinus(self):
     x = gcl.reads('3 - 2', implicit_tuple=False)
     print x
     self.assertEquals(1, parse('3 - 2'))
 
   def testMinusWithVariable(self):
+    # This basically says: arithmetic binds stronger than juxtaposition
     obj = gcl.loads('''
       x = 3;
       y = x - 2;
@@ -612,6 +613,21 @@ class TestNegativeAndMinus(unittest.TestCase):
     y = -x;
     ''', env={'x': -1})
     self.assertEquals(1, obj['y'])
+
+  def testComparisonBindsWeakerThanJuxtaposition(self):
+    obj = gcl.loads('''
+    X = { a = 3 };
+    y = 1 < X 'a';
+    ''')
+    self.assertEquals(True, obj['y'])
+
+  def testLogicalBindsWeakerThanJuxtaposition(self):
+    obj = gcl.loads('''
+    X = { a = true };
+    y = true or X 'a';
+    ''')
+    self.assertEquals(True, obj['y'])
+
 
 
 class TestStandardLibrary(unittest.TestCase):

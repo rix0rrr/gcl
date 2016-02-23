@@ -757,14 +757,19 @@ deref << (applic1 - p.ZeroOrMore(p.Suppress('.') - identifier)).setParseAction(m
 #
 # etc.
 term = deref
-for op_level in functions.binary_operators:
+for op_level in functions.binary_operators_before_juxtaposition:
   operator_syms = ' '.join(op_level.keys())
   term = (term - p.ZeroOrMore(p.oneOf(operator_syms) - term)).setParseAction(mkBinOps)
 
 # Juxtaposition function application (fn arg), must be 1-arg every time
 applic2 = (term - p.ZeroOrMore(term)).setParseAction(mkApplications)
 
-expression << applic2
+term = applic2
+for op_level in functions.binary_operators_after_juxtaposition:
+  operator_syms = ' '.join(op_level.keys())
+  term = (term - p.ZeroOrMore(p.oneOf(operator_syms) - term)).setParseAction(mkBinOps)
+
+expression << term
 
 # Two entry points: start at an arbitrary expression, or expect the top-level
 # scope to be a tuple.

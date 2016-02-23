@@ -1,5 +1,6 @@
 """GCL standard library functions."""
 
+import math
 import itertools
 import functools
 
@@ -106,12 +107,14 @@ builtin_functions = {
     'sorted': sorted,
     'split': split,
     'has': has_key,
-    'flatten': flatten
+    'flatten': flatten,
+    'sqrt': math.sqrt,  # Only for the Pythagoras demo :)
+    'len': len
     }
 
 
 # Binary operators, by precedence level
-binary_operators = [
+binary_operators_before_juxtaposition = [
     {
       '*': lambda x, y: x * y,
       '/': lambda x, y: x / y,
@@ -119,7 +122,9 @@ binary_operators = [
     }, {
       '+': lambda x, y: x + y,
       '-': lambda x, y: x - y,
-    }, {
+    }]
+binary_operators_after_juxtaposition = [
+    {
       '==': lambda x, y: x == y,
       '!=': lambda x, y: x != y,
       '<': lambda x, y: x < y,
@@ -130,7 +135,10 @@ binary_operators = [
       'and': lambda x, y: x and y,
       'or': lambda x, y: x or y,
     }]
-all_binary_operators = {k: v for os in binary_operators for k, v in os.items()}
+all_binary_operators = {
+    k: v
+    for os in binary_operators_before_juxtaposition + binary_operators_after_juxtaposition
+    for k, v in os.items()}
 
 
 unary_operators = {
