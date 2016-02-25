@@ -24,13 +24,22 @@ class ExpressionWalker(object):
   def enterTuple(self, tuple, path):
     """Called for every tuple.
 
-    If this returns False, the elements of the tuple will not be recursed over
-    and leaveTuple() will not be called.
+    If this returns Falsey, the elements of the tuple will not be recursed over and leaveTuple()
+    will not be called. It can also return True, or an object, in which case the walk will be
+    resumed using the current or the indicated object, respectively.
     """
-    pass
+    return True
 
   def leaveTuple(self, tuple, path):
     pass
+
+  def enterList(self, list, path):
+    # Backwards compat
+    return self.enterTuple(list, path)
+
+  def leaveList(self, list, path):
+    # Backwards compat
+    return self.leaveTuple(list, path)
 
   def visitRecursion(self, key_path):
     self.visitError(key_path, RecursionException('recursion'))
@@ -93,11 +102,15 @@ def walk(value, walker, path=None, seen=None):
   # List
   if isinstance(value, list):
     # Not actually a tuple, but okay
-    if walker.enterTuple(value, path) is False:
-      return
-    for i, x in enumerate(value):
-      walk(x, walker, path=path + ['[%d]' % i], seen=seen)
-    walker.leaveTuple(value, path)
+    recurse = walker.enterList(value, path)
+    if not recurse: return
+    next_walker = walker if recurse is True else recurse
+
+    with TempSetAdd(seen, id(value)):
+      for i, x in enumerate(value):
+        walk(x, next_walker, path=path + ['[%d]' % i], seen=seen)
+
+      walker.leaveList(value, path)
     return
 
   # Scalar
@@ -106,20 +119,31 @@ def walk(value, walker, path=None, seen=None):
     return
 
   # Tuple
-  if walker.enterTuple(value, path) is False:
-    return
+  recurse = walker.enterTuple(value, path)
+  if not recurse: return
+  next_walker = walker if recurse is True else recurse
 
-  seen.add(id(value))  # Anti-recursion
+  with TempSetAdd(seen, id(value)):
+    keys = sorted(value.keys())
+    for key in keys:
+      key_path = path + [key]
+      elm = get_or_error(value, key)
+      walk(elm, next_walker, path=key_path, seen=seen)
 
-  keys = sorted(value.keys())
-  for key in keys:
-    key_path = path + [key]
-    elm = get_or_error(value, key)
-    walk(elm, walker, path=key_path, seen=seen)
+    walker.leaveTuple(value, path)
 
-  walker.leaveTuple(value, path)
 
-  seen.remove(id(value))
+class TempSetAdd(object):
+  def __init__(self, set, value):
+    self.set = set
+    self.value = value
+
+  def __enter__(self):
+    self.set.add(self.value)
+    return self
+
+  def __exit__(self, value, type, tb):
+    self.set.remove(self.value)
 
 
 def _digest(value, digest):
