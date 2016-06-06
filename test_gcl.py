@@ -33,6 +33,9 @@ class TestBasics(unittest.TestCase):
   def testEscapedString(self):
     self.assertEquals("Master \"Bob\" Foo", parse('"Master \\"Bob\\" Foo"'))
 
+  def testStringWithNewlines(self):
+    self.assertEquals("Beep\nBoop", parse('"Beep\\nBoop"'))
+
   def testNull(self):
     self.assertEquals(None, parse('null'))
 

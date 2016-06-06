@@ -667,6 +667,13 @@ def bracketedList(l, r, sep, expr, what):
   return (sym(l) - listMembers(sep, expr, what) - sym(r)).setParseAction(head)
 
 
+def unquote(s):
+  """Unquote the indicated string."""
+  # Ignore the left- and rightmost chars (which should be quotes).
+  # Use the Python engine to decode the escape sequence
+  return s[1:-1].decode('string_escape')
+
+
 keywords = ['and', 'or', 'not', 'if', 'then', 'else', 'include', 'inherit', 'null', 'true', 'false',
     'for', 'in']
 
@@ -684,8 +691,8 @@ identifier = quotedIdentifier | p.Regex(r'[a-zA-Z_]([a-zA-Z0-9_:-]*[a-zA-Z0-9_])
 # Contants
 integer = p.Word(p.nums).setParseAction(do(head, int, Literal))
 floating = p.Regex(r'\d*\.\d+').setParseAction(do(head, float, Literal))
-dq_string = p.QuotedString('"', escChar='\\', multiline=True).setParseAction(do(head, Literal))
-sq_string = p.QuotedString("'", escChar='\\', multiline=True).setParseAction(do(head, Literal))
+dq_string = p.QuotedString('"', escChar='\\', unquoteResults=False, multiline=True).setParseAction(do(head, unquote, Literal))
+sq_string = p.QuotedString("'", escChar='\\', unquoteResults=False, multiline=True).setParseAction(do(head, unquote, Literal))
 boolean = (p.Keyword('true') | p.Keyword('false')).setParseAction(do(head, mkBool, Literal))
 null = p.Keyword('null').setParseAction(Null)
 
