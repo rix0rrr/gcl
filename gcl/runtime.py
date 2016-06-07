@@ -27,10 +27,16 @@ class Tuple(framework.TupleLike):
     # This mapping is for backwards compatibility. In principle, the TupleNode owns the members
     self.__items = {m.name: m.value for m in tuplenode.members}
     self.__env_cache = framework.Cache()  # Env cache so eval caching works more effectively
-    self.tuple_schema = schema.AnySchema()
 
     # This function is only here to break a cyclic dependency on the 'ast' module
     self.dict2tuple = dict2tuple
+
+    self._init_tuple()
+
+  def _init_tuple(self):
+    """Initialize shared tuple classes."""
+    self.tuple_schema = schema.AnySchema()
+    self._value_cache = {}
 
   def dict(self):
     return self.__items
@@ -44,9 +50,14 @@ class Tuple(framework.TupleLike):
     if type(key) == int:
       raise ValueError('Trying to access tuple as a list')
 
-    x = self.get_no_validate(key)
+    if key not in self._value_cache:
+      x = self.get_no_validate(key)
+      sub_schema = self.tuple_schema.get_subschema(key)
+      schema.validate(x, sub_schema)
+      schema.attach(x, sub_schema)
+      self._value_cache[key] = x
 
-    return schema.validate(x, self.tuple_schema.get_subschema(key))
+    return self._value_cache[key]
 
   def get_no_validate(self, key):
     """Return an item without validating the schema."""
@@ -207,8 +218,9 @@ class CompositeTuple(Tuple):
     self._tuples = tuples
     self._keys = functools.reduce(lambda s, t: s.union(t.keys()), self._tuples, set())
     self._makeLookupList()
-    self.tuple_schema = schema.AnySchema()
     self.dict2tuple = dict2tuple
+
+    self._init_tuple()
 
   def _makeLookupList(self):
     # Count index from the back because we're going to reverse

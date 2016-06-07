@@ -78,6 +78,12 @@ class TestSchemaObjects(unittest.TestCase):
     with self.assertRaises(exceptions.SchemaError):
       s.validate({})
 
+  def testValidateShouldNotAttach(self):
+    s = schema.from_spec({'required': ['a']})
+    x = gcl.loads('a = 3')
+    s.validate(x)
+    self.assertEquals([], x.tuple_schema.required_fields)
+
 
 class TestSchemaEquality(unittest.TestCase):
   def setUp(self):
@@ -262,6 +268,7 @@ class TestSchemaInGCL(unittest.TestCase):
   def testSpecifySchemaDeepInList(self):
     obj = gcl.loads("x : [{ a : int }] = [{ a = 'foo' }];")
     with self.assertRaises(exceptions.SchemaError):
+      print obj['x'][0].tuple_schema
       print(obj['x'][0]['a'])
 
   def testSchemaCanBeSetFromAbove(self):

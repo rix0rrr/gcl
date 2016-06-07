@@ -34,6 +34,8 @@ any_schema = AnySchema()  # Object reuse through immutable singleton
 
 class AndSchema(Schema):
   def __init__(self, one, two):
+    assert isinstance(one, Schema)
+    assert isinstance(two, Schema)
     self.one = one
     self.two = two
 
@@ -42,7 +44,9 @@ class AndSchema(Schema):
     self.two.validate(value)
 
   def get_subschema(self, key):
-    return AndSchema.make(self.one.get_subschema(key), self.two.get_subschema(key))
+    one_schema = self.one.get_subschema(key)
+    two_schema = self.two.get_subschema(key)
+    return AndSchema.make(one_schema, two_schema)
 
   def __repr__(self):
     return 'AndSchema(%r, %r)' % (self.one, self.two)
@@ -149,9 +153,6 @@ class TupleSchema(Schema):
       if not key_check(k):
         raise exceptions.SchemaError('Tuple is missing required key %r in %r' % (k, value))
 
-    # Attach schema to tuple, so it can verify subfields
-    getattr(value, 'attach_schema', nop)(self)
-
     # Don't validate the subfields here -- we'll do that lazily when
     # we access the subfields.
 
@@ -213,3 +214,19 @@ def validate(obj, schema):
   if schema:
     schema.validate(obj)
   return obj
+
+
+def attach(obj, schema):
+  """Attach the given schema to the given object."""
+
+  # We have a silly exception for lists, since they have no 'attach_schema'
+  # method, and I don't feel like making a subclass for List just to add it.
+  # So, we recursively search the list for tuples and attach the schema in
+  # there.
+  if framework.is_list(obj) and isinstance(schema, ListSchema):
+    for x in obj:
+      attach(x, schema.element_schema)
+    return
+
+  # Otherwise, the object should be able to handle its own schema attachment.
+  getattr(obj, 'attach_schema', nop)(schema)
