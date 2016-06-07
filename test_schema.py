@@ -268,7 +268,6 @@ class TestSchemaInGCL(unittest.TestCase):
   def testSpecifySchemaDeepInList(self):
     obj = gcl.loads("x : [{ a : int }] = [{ a = 'foo' }];")
     with self.assertRaises(exceptions.SchemaError):
-      print obj['x'][0].tuple_schema
       print(obj['x'][0]['a'])
 
   def testSchemaCanBeSetFromAbove(self):
