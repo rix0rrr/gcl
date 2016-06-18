@@ -167,7 +167,7 @@ class EmptyEnvironment(object):
     self.ident = obj_ident()
 
   def __getitem__(self, key):
-    raise exceptions.EvaluationError('Unbound variable: %r' % key)
+    raise exceptions.UnboundNameError('Unbound variable: %r' % key)
 
   def __contains__(self, key):
     return False

@@ -14,7 +14,7 @@ except IOError:
 #https://packaging.python.org/en/latest/distributing.html
 setup(
     name='gcl',
-    version='0.6.7',
+    version='0.6.8',
     description='Generic Configuration Language',
     long_description=long_description,
     url='https://github.com/rix0rrr/gcl',
@@ -25,6 +25,7 @@ setup(
     entry_points = {
         'console_scripts' : [
             'gcl-print=gcl.printer:main',
+            'gcl-doc=gcl.doc:main',
             'gcl2json=gcl.to_json:main',
         ],
     },

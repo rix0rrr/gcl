@@ -156,6 +156,43 @@ class TestTuple(unittest.TestCase):
     obj = parse_tuple('he110-1orld = 3')
     self.assertEquals(3, obj['he110-1orld'])
 
+class TestDocComments(unittest.TestCase):
+  def testParseDocComment(self):
+    obj = parse_tuple('''
+      #. This is a doc comment
+      member = 'value';
+    ''')
+    self.assertEquals(['This is a doc comment'], obj._ast_node.members[0].comment.lines)
+
+  def testParseMultiLineDocComment(self):
+    obj = parse_tuple('''
+      #. This is a doc comment
+      #.
+      #. Containing multiple lines
+      member = 'value';
+    ''')
+    self.assertEquals(['This is a doc comment', '', 'Containing multiple lines'], obj._ast_node.members[0].comment.lines)
+
+    self.assertEquals('This is a doc comment', obj._ast_node.members[0].comment.title())
+    self.assertEquals(['Containing multiple lines'], obj._ast_node.members[0].comment.body_lines())
+
+  def testTextAndTags(self):
+    obj = parse_tuple('''
+      #. Comment
+      #. @tag
+      member = 'value';
+    ''')
+    self.assertEquals('', obj._ast_node.members[0].comment.tag('tag'))
+    self.assertEquals(None, obj._ast_node.members[0].comment.tag('other_tag'))
+
+  def testOnlyTag(self):
+    obj = parse_tuple('''
+      #. @tag
+      member = 'value';
+    ''')
+    self.assertEquals('', obj._ast_node.members[0].comment.tag('tag'))
+    self.assertEquals('', obj._ast_node.members[0].comment.title())
+
 
 class TestApplication(unittest.TestCase):
   def setUp(self):

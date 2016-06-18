@@ -17,6 +17,7 @@ Contents:
    loading_and_using
    command_line_tools
    schemas
+   generated_docs
    standard_functions
    editing
    motivation

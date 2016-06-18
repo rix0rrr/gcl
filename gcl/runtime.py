@@ -22,7 +22,7 @@ class Tuple(framework.TupleLike):
   """
   def __init__(self, tuplenode, parent_env, dict2tuple):
     self.ident = framework.obj_ident()
-    self.__tuplenode = tuplenode
+    self._ast_node = tuplenode
     self.__parent_env = parent_env
     # This mapping is for backwards compatibility. In principle, the TupleNode owns the members
     self.__items = {m.name: m.value for m in tuplenode.members}
@@ -119,6 +119,10 @@ class Tuple(framework.TupleLike):
   def is_bound(self, name):
     return name in self and not self.get_thunk(name).is_unbound()
 
+  def get_member_node(self, name):
+    """Return the AST node for the given member."""
+    return self._ast_node.member[name]
+
   def compose(self, tup):
     if not isinstance(tup, Tuple):
       tup = self.dict2tuple(tup)
@@ -134,7 +138,7 @@ class Tuple(framework.TupleLike):
 
   def get_schema_spec(self, key):
     """Return the evaluated schema expression from a subkey."""
-    member_node = self.__tuplenode.member.get(key, None)
+    member_node = self._ast_node.member.get(key, None)
     if not member_node:
       return schema.AnySchema()
 
@@ -145,10 +149,10 @@ class Tuple(framework.TupleLike):
 
   def get_required_fields(self):
     """Return the names of fields that are required according to the schema."""
-    return [m.name for m in self.__tuplenode.members if m.member_schema.required]
+    return [m.name for m in self._ast_node.members if m.member_schema.required]
 
   def _keys_and_privacy(self):
-    return {k: self.__tuplenode.member[k].member_schema.private for k in self.keys()}
+    return {k: self._ast_node.member[k].member_schema.private for k in self.keys()}
 
   def exportable_keys(self):
     """Return a list of keys that are exportable from this tuple."""
@@ -262,6 +266,13 @@ class CompositeTuple(Tuple):
     if thunk:
       return thunk, env
     raise exceptions.EvaluationError('Unknown key: %r in composite tuple %r' % (key, self))
+
+  def get_member_node(self, key):
+    """Return the AST node for the given member, from the first tuple that serves it."""
+    for tup, _ in self.lookups:
+      if key in tup:
+        return tup.get_member_node(key)
+    raise RuntimeError('Key not found in composite tuple: %r' % key)
 
   def exportable_keys(self):
     """Return a list of keys that are exportable from this tuple.

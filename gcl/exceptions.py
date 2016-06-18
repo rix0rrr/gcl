@@ -12,8 +12,14 @@ class EvaluationError(GCLError):
   def __str__(self):
     return self.args[0] + ('\n' + str(self.inner) if self.inner else '')
 
+
+class UnboundNameError(EvaluationError):
+  pass
+
+
 class RecursionError(EvaluationError):
   pass
+
 
 class SchemaError(EvaluationError):
   pass

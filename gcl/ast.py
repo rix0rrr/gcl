@@ -1,8 +1,11 @@
 """
 AST and parsing related functions.
 """
+import collections
 import itertools
+import string
 import sys
+import textwrap
 
 import pyparsing as p
 
@@ -53,6 +56,7 @@ def pafac(fn):
       else:
         # Python 2, put the original trace inside the error message. This exception is never
         # supposed to happen anyway, it is just for debugging.
+        import traceback
         raise RuntimeError(traceback.format_exc())
   return wrapped
 
@@ -212,10 +216,67 @@ class TupleMemberNode(object):
     self.name = name
     self.value = value
     self.member_schema = schema
+    self.comment = DocComment(sloc)
+
+  def attach_comment(self, comment):
+    self.comment = comment
 
   def __repr__(self):
     schema_repr = ': %r' % self.member_schema if not isinstance(self.member_schema, NoSchemaNode) else ''
     return '%s%s = %r' % (self.name, schema_repr, self.value)
+
+
+class DocComment(object):
+  def __init__(self, sloc, *lines):
+    self.sloc = sloc
+    self.lines = []
+    self.tags = collections.defaultdict(lambda: '')
+
+    lines = textwrap.dedent('\n'.join(lines)).split('\n')
+    for line in lines:
+      if line.startswith('@'):
+        try:
+          tag, content = line[1:].split(' ', 1)
+        except ValueError:
+          tag, content = line[1:], ''
+        self.tags[tag] = content
+      else:
+        self.lines.append(line)
+
+  def tag(self, name):
+    return self.tags.get(name, None)
+
+  def has_tag(self, name):
+    return self.tag(name) is not None
+
+  def title(self):
+    return ' '.join(s.strip() for s in itertools.takewhile(nonempty, self.lines))
+
+  def body_lines(self):
+    return list(drop(1, itertools.dropwhile(nonempty, self.lines)))
+
+  def __repr__(self):
+    return '\n'.join('#. %s' % l for l in self.lines)
+
+
+def nonempty(s):
+  """Return True iff the given string is nonempty."""
+  return len(s.strip())
+
+
+def strip_space(s):
+  return s[1:] if s.startswith(' ') else s
+
+
+def drop(n, xs):
+  for i, x in enumerate(xs):
+    if n <= i:
+      yield x
+
+
+def attach_doc_comment(sloc, comment, member):
+  member.attach_comment(comment)
+  return member
 
 
 class TupleNode(framework.Thunk):
@@ -353,7 +414,7 @@ class UnOp(framework.Thunk):
     return call_fn(fn, ArgList([self.right]), env)
 
   def __repr__(self):
-    return '%s%r' % (self.op, self.right)
+    return '%s%s%r' % (self.op, ' ' if self.op == 'not' else '', self.right)
 
 
 def mkUnOp(tokens):
@@ -694,7 +755,8 @@ keywords = ['and', 'or', 'not', 'if', 'then', 'else', 'include', 'inherit', 'nul
 
 expression = p.Forward()
 
-comment = '#' + p.restOfLine
+comment = p.Regex('#[^.]') + p.restOfLine
+doc_comment = (sym('#.') + p.restOfLine)
 
 quotedIdentifier = p.QuotedString('`', multiline=False)
 
@@ -720,10 +782,11 @@ schema_spec = (p.Optional(p.Keyword('private').setParseAction(lambda: True), def
                - p.Optional(p.Keyword('required').setParseAction(lambda: True), default=False)
                - p.Optional(expression, default=any_scheam_expr)).setParseAction(pafac(MemberSchemaNode))
 optional_schema = p.Optional(p.Suppress(':') - schema_spec, default=no_schema)
-tuple_member = (inherit
-               | (identifier + optional_schema + ~p.FollowedBy('=')).setParseAction(lambda s, loc, x: TupleMemberNode(SourceLocation(s, loc), x[0], x[1], Void(x[0], SourceLocation(s, loc))))
-               | (identifier - optional_schema - p.Suppress('=') - expression).setParseAction(pafac(TupleMemberNode))
-               )
+
+void_member = (identifier + optional_schema + ~p.FollowedBy('=')).setParseAction(lambda s, loc, x: TupleMemberNode(SourceLocation(s, loc), x[0], x[1], Void(x[0], SourceLocation(s, loc))))
+value_member = (identifier - optional_schema - p.Suppress('=') - expression).setParseAction(pafac(TupleMemberNode))
+member_decl = (p.ZeroOrMore(doc_comment).setParseAction(pafac(DocComment)) + (void_member | value_member)).setParseAction(pafac(attach_doc_comment))
+tuple_member = inherit | member_decl
 tuple_members = listMembers(';', tuple_member, pafac(TupleNode))
 tuple = bracketedList('{', '}', ';', tuple_member, pafac(TupleNode))
 
