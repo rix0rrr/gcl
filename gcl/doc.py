@@ -127,7 +127,7 @@ class DocumentedFile(object):
         try:
           deeper_tuple = tuple[m]
           self.write_tuple(fobj, deeper_tuple, TupleDocs(self.args, deeper_tuple), expand_tuples=False)
-        except Exception, e:
+        except Exception as e:
           fobj.rst_block('admonition:: Whoopsie', [str(e)])
 
   def write_field(self, fobj, name, member_node, is_unbound=False, as_section=False, show_default=False):
