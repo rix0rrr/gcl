@@ -746,6 +746,7 @@ def unquote(s):
 
 UNQUOTE_MAP = {
     'n' : '\n',
+    'r' : '\r',
     't' : '\t',
     }
 

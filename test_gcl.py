@@ -36,6 +36,12 @@ class TestBasics(unittest.TestCase):
   def testStringWithNewlines(self):
     self.assertEquals("Beep\nBoop", parse('"Beep\\nBoop"'))
 
+  def testStringWithCR(self):
+    self.assertEquals("Beep\rBoop", parse('"Beep\\rBoop"'))
+
+  def testStringWithTab(self):
+    self.assertEquals("Beep\tBoop", parse('"Beep\\tBoop"'))
+
   def testNull(self):
     self.assertEquals(None, parse('null'))
 
