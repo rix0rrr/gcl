@@ -61,6 +61,30 @@ class QueryTests(unittest.TestCase):
     result = sel.select(self.model).deep()
     self.assertEquals([2], result['scalar_list'])
 
+  def testMultipleQueriesWithStar(self):
+    """Check that if we have multiple selectors with * in it, we keep the indexes consistent."""
+    sel = query.GPath([
+      'list.*.item1',
+      'list.*.item2',
+      ])
+
+    # Kinda know it breaks if the orders are different
+    model = gcl.loads("""
+    list = [
+      { item2 = 1 },
+      { item1 = 5 },
+    ]
+    """)
+    result = sel.select(model).deep()
+
+    self.assertEquals([{"item2": 1},
+                       {"item1": 5}],
+                      result["list"])
+
+
+
+
+
 
 class TestFinder(unittest.TestCase):
   def setUp(self):

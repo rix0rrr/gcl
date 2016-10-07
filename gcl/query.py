@@ -44,6 +44,10 @@ def isListKey(key):
   return key.startswith('[')
 
 
+def listKeyIndex(key):
+  return int(key[1:-1])
+
+
 def is_tuple(x):
   return isinstance(x, framework.TupleLike) or isinstance(x, dict)
 
@@ -119,6 +123,7 @@ class GPath(object):
 class QueryResult(object):
   def __init__(self, results):
     self.results = results
+    self.lists = {}
 
   def empty(self):
     return not self.results
@@ -139,39 +144,76 @@ class QueryResult(object):
     The leaf values may still be gcl Tuples. Use util.to_python() if you want
     to reify everything to real Python values.
     """
+    self.lists = {}
     ret = {}
     for path, value in self.paths_values():
-      d = ret
-      for i, part in enumerate(path[:-1]):
-        if not ld_contains(d, part):
-          d = ld_set(d, part, [] if isListKey(path[i+1]) else {})
-        else:
-          d = ld_get(d, part)
-      ld_set(d, path[-1], value)
+      self.recursiveSet(ret, path, value)
+    self.removeMissingValuesFromLists()
     return ret
 
+  def recursiveSet(self, record, path, value):
+    # Can't do recursive base case here
+    assert len(path) > 0
+    head, tail = path[0], path[1:]
+    if not tail:
+      # Assign value here
+      self.ldSet(record, head, value)
+    else:
+      # Get the element here, recurse. If it doesn't exist yet, create it
+      # based on the type of the next path key.
+      if not self.ldContains(record, head):
+        self.ldSet(record, head, [] if isListKey(tail[0]) else {})
 
-def ld_set(what, key, value):
-  """List-aware set."""
-  if isListKey(key):
-    what.append(value)
-  else:
-    what[key] = value
-  return value
+      self.recursiveSet(self.ldGet(record, head), tail, value)
 
-def ld_get(what, key):
-  """List-aware get."""
-  if isListKey(key):
-    return what[int(key[1:-1])]
-  else:
-    return what[key]
+  def ldSet(self, what, key, value):
+    """List/dictionary-aware set."""
+    if isListKey(key):
+      # Make sure we keep the indexes consistent, insert missing_values
+      # as necessary. We do remember the lists, so that we can remove
+      # missing values after inserting all values from all selectors.
+      self.lists[id(what)] = what
+      ix = listKeyIndex(key)
+      while len(what) <= ix:
+        what.append(missing_value)
+      what[ix] = value
+    else:
+      what[key] = value
+    return value
 
-def ld_contains(what, key):
-  """List-aware contains."""
-  if isListKey(key):
-    return int(key[1:-1]) < len(what)
-  else:
-    return key in what
+  def ldGet(self, what, key):
+    """List-aware get."""
+    if isListKey(key):
+      return what[listKeyIndex(key)]
+    else:
+      return what[key]
+
+  def ldContains(self, what, key):
+    """List/dictinary/missing-aware contains.
+
+    If the value is a "missing_value", we'll treat it as non-existent
+    so it will be overwritten by an empty list/dict when necessary to
+    assign child keys.
+    """
+    if isListKey(key):
+      i = listKeyIndex(key)
+      return i < len(what) and what[i] != missing_value
+    else:
+      return key in what and what[key] != missing_value
+
+  def removeMissingValuesFromLists(self):
+    for lst in self.lists.values():
+      i = 0
+      while i < len(lst):
+        if lst[i] == missing_value:
+          lst.pop(i)
+        else:
+          i += 1
+
+class MissingValue(object):
+  pass
+
+missing_value = MissingValue()
 
 
 class Node(object):
