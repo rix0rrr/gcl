@@ -37,28 +37,50 @@ def mkBool(s): return True if s == 'true' else False
 def drop(x): return []
 
 
-def pafac(fn):
+def callParseAction(action, src_loc, tokens):
+  try:
+    return action(src_loc, *list(tokens))
+  except TypeError as e:
+    # pyparsing will catch TypeErrors to "detect" our arity, but I don't want to swallow errors
+    # here. Convert to some other exception type. I'd LOVE to keep the stack trace here, but there
+    # is no one syntax that is not a syntax error in either Python 2 or Python 3. So in Python 2
+    # we don't keep the stack trace, unfortunately.
+
+    if hasattr(e, 'with_traceback'):
+      # Python 3
+      raise RuntimeError(str(e)).with_traceback(sys.exc_info()[2])
+    else:
+      # Python 2, put the original trace inside the error message. This exception is never
+      # supposed to happen anyway, it is just for debugging.
+      import traceback
+      raise RuntimeError(traceback.format_exc())
+
+
+def pafac(action):
   """Make a function that accepts a parsed string and a SourceLocation into a function that can be
   passed into a setParseAction.
   """
-  def wrapped(s, loc, x):
-    try:
-      return fn(SourceLocation(s, loc), *list(x))
-    except TypeError as e:
-      # pyparsing will catch TypeErrors to "detect" our arity, but I don't want to swallow errors
-      # here. Convert to some other exception type. I'd LOVE to keep the stack trace here, but there
-      # is no one syntax that is not a syntax error in either Python 2 or Python 3. So in Python 2
-      # we don't keep the stack trace, unfortunately.
-
-      if hasattr(e, 'with_traceback'):
-        # Python 3
-        raise RuntimeError(str(e)).with_traceback(sys.exc_info()[2])
-      else:
-        # Python 2, put the original trace inside the error message. This exception is never
-        # supposed to happen anyway, it is just for debugging.
-        import traceback
-        raise RuntimeError(traceback.format_exc())
+  def wrapped(s, loc, xs):
+    src_loc = SourceLocation(s, loc)
+    return callParseAction(action, src_loc, xs)
   return wrapped
+
+
+def parseWithLocation(expr, action):
+  startMarker = p.Empty().setParseAction(lambda s, loc, t: loc)
+  endMarker = startMarker.copy()
+  complete = startMarker + expr + endMarker
+
+  def parseAction(s, loc, t):
+    start, inner_tokens, end = t[0], t[1:-1], t[-1]
+    src_loc = SourceLocation(s, start, end)
+    print t
+    print inner_tokens, type(inner_tokens)
+    print src_loc
+    return callParseAction(action, src_loc, inner_tokens)
+
+  complete.setParseAction(parseAction)
+  return complete
 
 
 class ParseContext(object):
