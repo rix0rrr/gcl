@@ -92,22 +92,31 @@ the_context = ParseContext()
 
 
 class SourceLocation(object):
-  def __init__(self, string, offset):
+  def __init__(self, string, start_offset, end_offset=None):
     self.filename = the_context.filename
     self.string = string
-    self.offset = offset
+    self.start_offset = start_offset
+    self.end_offset = end_offset
 
   @property
   def line(self):
-    return p.line(self.offset, self.string)
+    return p.line(self.start_offset, self.string)
 
   @property
   def lineno(self):
-    return p.lineno(self.offset, self.string)
+    return p.lineno(self.start_offset, self.string)
+
+  @property
+  def end_lineno(self):
+    return p.lineno(self.end_offset, self.string)
 
   @property
   def col(self):
-    return p.col(self.offset, self.string)
+    return p.col(self.start_offset, self.string)
+
+  @property
+  def end_col(self):
+    return p.col(self.end_offset, self.string)
 
   @property
   def line_spec(self):
@@ -118,7 +127,7 @@ class SourceLocation(object):
     return msg
 
   def __str__(self):
-    return self.string[:self.offset] + '|' + self.string[self.offset:]
+    return self.string[:self.start_offset] + '|' + self.string[self.start_offset:]
 
   @staticmethod
   def empty():
