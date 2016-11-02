@@ -737,17 +737,17 @@ def kw(kw):
   return p.Keyword(kw).suppress()
 
 
-def listMembers(sep, expr, what):
+def listMembers(sep, expr):
   return p.Optional(p.delimitedList(expr, sep) -
-                    p.Optional(sep).suppress()).setParseAction(what)
+                    p.Optional(sep).suppress())
 
 
-def bracketedList(l, r, sep, expr, what):
+def bracketedList(l, r, sep, expr):
   """Parse bracketed list.
 
   Empty list is possible, as is a trailing separator.
   """
-  return (sym(l) - listMembers(sep, expr, what) - sym(r)).setParseAction(head)
+  return (sym(l) - listMembers(sep, expr) - sym(r))
 
 
 def unquote(s):
@@ -797,7 +797,7 @@ boolean = (p.Keyword('true') | p.Keyword('false')).setParseAction(do(head, mkBoo
 null = p.Keyword('null').setParseAction(Null)
 
 # List
-list_ = bracketedList('[', ']', ',', expression, List)
+list_ = bracketedList('[', ']', ',', expression).setParseAction(List)
 
 # Tuple
 inherit = (kw('inherit') - p.ZeroOrMore(identifier)).setParseAction(mkInherits)
@@ -810,15 +810,15 @@ void_member = (identifier + optional_schema + ~p.FollowedBy('=')).setParseAction
 value_member = (identifier - optional_schema - p.Suppress('=') - expression).setParseAction(pafac(TupleMemberNode))
 member_decl = (p.ZeroOrMore(doc_comment).setParseAction(pafac(DocComment)) + (void_member | value_member)).setParseAction(pafac(attach_doc_comment))
 tuple_member = inherit | member_decl
-tuple_members = listMembers(';', tuple_member, pafac(TupleNode))
-tuple = bracketedList('{', '}', ';', tuple_member, pafac(TupleNode))
+tuple_members = parseWithLocation(listMembers(';', tuple_member), TupleNode)
+tuple = bracketedList('{', '}', ';', tuple_member).setParseAction(pafac(TupleNode))
 
 # Variable (can't be any of the keywords, which may have lower matching priority)
 variable = ~p.Or([p.Keyword(k) for k in keywords]) + identifier.copy().setParseAction(mkVar)
 
 # Argument list will live by itself as a atom. Actually, it's a tuple, but we
 # don't call it that because we use that term for something else already :)
-arg_list = bracketedList('(', ')', ',', expression, ArgList)
+arg_list = bracketedList('(', ')', ',', expression).setParseAction(ArgList)
 
 parenthesized_expr = (sym('(') - expression - ')').setParseAction(head)
 
@@ -898,4 +898,3 @@ def reads(s, filename, loader, implicit_tuple):
   except (p.ParseException, p.ParseSyntaxException) as e:
     msg = '%s:%d: %s\n%s\n%s^-- here' % (the_context.filename, e.lineno, e.msg, e.line, ' ' * (e.col - 1))
     raise exceptions.ParseError(msg)
-

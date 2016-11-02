@@ -21,7 +21,7 @@ def mkAlternates(x):
   return tuple(x)
 
 variable = ast.variable.copy().setParseAction(lambda x: str(x[0]))
-alts = ast.bracketedList('{', '}', ',', variable, mkAlternates)
+alts = ast.bracketedList('{', '}', ',', variable).setParseAction(mkAlternates)
 list_index = ast.sym('[') + ast.integer.copy().setParseAction(lambda x: int(x[0])) + ast.sym(']')
 everything = p.Literal('*')
 element = variable | alts | list_index | everything
