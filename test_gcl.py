@@ -412,6 +412,12 @@ class TestExpressions(unittest.TestCase):
     ''')
     self.assertEquals(False, x['x'])
 
+  def testInOperatorPos(self):
+    self.assertEquals(True, parse('"a" in ["a", "b"]'))
+
+  def testInOperatorNeg(self):
+    self.assertEquals(False, parse('"c" in ["a", "b"]'))
+
 
 class TestScoping(unittest.TestCase):
   def testOuterValueAvailableInInnerOne(self):

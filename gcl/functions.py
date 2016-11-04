@@ -118,6 +118,7 @@ binary_operators_before_juxtaposition = [
       '*': lambda x, y: x * y,
       '/': lambda x, y: x / y,
       '%': lambda x, y: x % y,
+      'in': lambda x, y: x in y,
     }, {
       '+': lambda x, y: x + y,
       '-': lambda x, y: x - y,
