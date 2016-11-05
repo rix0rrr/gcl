@@ -24,12 +24,6 @@ def do(*fns):
   return fg
 
 
-def doapply(what):
-  def fn(args):
-    return what(*args)
-  return fn
-
-
 def head(x): return x[0]
 def second(x): return x[1]
 def inner(x): return x[1:-1]
@@ -56,16 +50,6 @@ def callParseAction(action, src_loc, tokens):
       raise RuntimeError(traceback.format_exc())
 
 
-def pafac(action):
-  """Make a function that accepts a parsed string and a SourceLocation into a function that can be
-  passed into a setParseAction.
-  """
-  def wrapped(s, loc, xs):
-    src_loc = SourceLocation(s, loc)
-    return callParseAction(action, src_loc, xs)
-  return wrapped
-
-
 def parseWithLocation(expr, action):
   startMarker = p.Empty().setParseAction(lambda s, loc, t: loc)
   endMarker = startMarker.copy()
@@ -74,13 +58,17 @@ def parseWithLocation(expr, action):
   def parseAction(s, loc, t):
     start, inner_tokens, end = t[0], t[1:-1], t[-1]
     src_loc = SourceLocation(s, start, end)
-    print t
-    print inner_tokens, type(inner_tokens)
-    print src_loc
     return callParseAction(action, src_loc, inner_tokens)
 
   complete.setParseAction(parseAction)
   return complete
+
+
+def convertAndMake(converter, handler):
+  """Convert with location."""
+  def convertAction(loc, value):
+    return handler(loc, converter(value))
+  return convertAction
 
 
 class ParseContext(object):
@@ -108,6 +96,7 @@ class SourceLocation(object):
 
   @property
   def end_lineno(self):
+    assert self.end_offset is not None
     return p.lineno(self.end_offset, self.string)
 
   @property
@@ -116,6 +105,7 @@ class SourceLocation(object):
 
   @property
   def end_col(self):
+    assert self.end_offset is not None
     return p.col(self.end_offset, self.string)
 
   @property
@@ -127,17 +117,59 @@ class SourceLocation(object):
     return msg
 
   def __str__(self):
-    return self.string[:self.start_offset] + '|' + self.string[self.start_offset:]
+    if self.end_offset:
+      return self.string[:self.start_offset] + '[' + self.string[self.start_offset:self.end_offset] + ']' + self.string[self.end_offset:]
+    else:
+      return self.string[:self.start_offset] + '|' + self.string[self.start_offset:]
 
   @staticmethod
   def empty():
     return SourceLocation('', 0)
 
+  def contains(self, q):
+    return (q.filename == self.filename
+        and (q.line > self.lineno or (q.line == self.lineno and q.col >= self.col))
+        and (q.line < self.end_lineno or (q.line == self.end_lineno and q.col <= self.end_col)))
 
-class Null(framework.Thunk):
+  def __repr__(self):
+    return 'SourceLocation(%r, %r:%r, %r:%r)' % (self.filename, self.lineno, self.col, self.end_lineno, self.end_col)
+
+
+class AstNode(object):
+  def find_tokens(self, q):
+    """Find all AST nodes at the given filename, line and column."""
+    found_me = []
+    if hasattr(self, 'location'):
+      if self.location.contains(q):
+        found_me = [self]
+    elif self._found_by(q):
+      found_me = [self]
+
+    cs = [n.find_tokens(q) for n in self._children()]
+    return found_me + list(itertools.chain(*cs))
+
+  def _found_by(self, q):
+    raise exceptions.EvaluationError('Not implemented')
+
+  def _children(self):
+    return []
+
+
+class SourceQuery(object):
+  def __init__(self, filename, line, col):
+    self.filename = filename
+    self.line = line
+    self.col = col
+
+  def __repr__(self):
+    return 'SourceQuery(%r, %r, %r)' % (self.filename, self.line, self.col)
+
+
+class Null(framework.Thunk, AstNode):
   """Null, evaluates to None."""
-  def __init__(self):
+  def __init__(self, location, _):
     self.ident = framework.obj_ident()
+    self.location = location
 
   def eval(self, env):
     return None
@@ -146,16 +178,17 @@ class Null(framework.Thunk):
     return "null";
 
 
-class Inherit(framework.BindableThunk):
+class Inherit(framework.BindableThunk, AstNode):
   """Inherit Thunks can be either bound or unbound."""
 
-  def __init__(self, name, env=None):
+  def __init__(self, location, name, env=None):
     self.ident = framework.obj_ident()
+    self.location = location
     self.name = name
     self.env = env
 
   def bind(self, env):
-    return Inherit(self.name, env)
+    return Inherit(self.location, self.name, env)
 
   def eval(self, env):
     if not self.env:
@@ -166,15 +199,22 @@ class Inherit(framework.BindableThunk):
     return 'inherit %s' % self.name
 
 
-def mkInherits(tokens):
-  return [TupleMemberNode(SourceLocation('', 0), t, no_schema, Inherit(t)) for t in list(tokens)]
+def inheritNodes(tokens):
+  for t in tokens:
+    assert isinstance(t, Var)
+  return [TupleMemberNode(t.location, t.name, no_schema, Inherit(t.location, t.name)) for t in list(tokens)]
 
 
-class Literal(framework.Thunk):
+def voidMember(location, identifier, schema):
+  return TupleMemberNode(location, identifier, schema, Void(location, identifier))
+
+
+class Literal(framework.Thunk, AstNode):
   """A GCL literal expression."""
-  def __init__(self, value):
+  def __init__(self, location, value):
     self.ident = framework.obj_ident()
     self.value = value
+    self.location = location
 
   def eval(self, env):
     return self.value
@@ -185,9 +225,9 @@ class Literal(framework.Thunk):
     return repr(self.value)
 
 
-class Var(framework.Thunk):
+class Var(framework.Thunk, AstNode):
   """Reference to another value."""
-  def __init__(self, name, location):
+  def __init__(self, location, name):
     self.ident = framework.obj_ident()
     self.name = name
     self.location = location
@@ -202,14 +242,11 @@ class Var(framework.Thunk):
     return self.name
 
 
-def mkVar(s, loc, toks):
-  return Var(toks[0], SourceLocation(s, loc))
-
-
-class List(framework.Thunk):
+class List(framework.Thunk, AstNode):
   """A GCL list."""
-  def __init__(self, values):
+  def __init__(self, location, *values):
     self.ident = framework.obj_ident()
+    self.location = location
     self.values = list(values)
 
   def eval(self, env):
@@ -218,8 +255,11 @@ class List(framework.Thunk):
   def __repr__(self):
     return repr(self.values)
 
+  def _children(self):
+    return self.values
 
-class ArgList(framework.Thunk):
+
+class ArgList(framework.Thunk, AstNode):
   """A paren-separated argument list.
 
   This is actually a shallow wrapper for Python's list type. We can't use that
@@ -236,18 +276,24 @@ class ArgList(framework.Thunk):
   def __repr__(self):
     return '(%s)' % ', '.join(repr(x) for x in self.values)
 
+  def _children(self):
+    return self.values
 
-class TupleMemberNode(object):
+  def _found_by(self, q):
+    return False
+
+
+class TupleMemberNode(AstNode):
   """AST node for tuple members.
 
   They have a name, an expression value and an optional schema.
   """
-  def __init__(self, sloc, name, schema, value=None):
-    self.sloc = sloc
+  def __init__(self, location, name, schema, value=None):
+    self.location = location
     self.name = name
     self.value = value
     self.member_schema = schema
-    self.comment = DocComment(sloc)
+    self.comment = DocComment(location)
 
   def attach_comment(self, comment):
     self.comment = comment
@@ -256,10 +302,13 @@ class TupleMemberNode(object):
     schema_repr = ': %r' % self.member_schema if not isinstance(self.member_schema, NoSchemaNode) else ''
     return '%s%s = %r' % (self.name, schema_repr, self.value)
 
+  def _children(self):
+    return [self.value]
+
 
 class DocComment(object):
-  def __init__(self, sloc, *lines):
-    self.sloc = sloc
+  def __init__(self, location, *lines):
+    self.location = location
     self.lines = []
     self.tags = collections.defaultdict(lambda: '')
 
@@ -305,25 +354,26 @@ def drop(n, xs):
       yield x
 
 
-def attach_doc_comment(sloc, comment, member):
+def attach_doc_comment(_, comment, member):
   member.attach_comment(comment)
   return member
 
 
-class TupleNode(framework.Thunk):
+class TupleNode(framework.Thunk, AstNode):
   """AST node for tuple
 
   When evaluating, the tuple doesn't actually evaluate its children. Instead, we return a (lazy)
   Tuple object that only evaluates the elements when they're requested.
   """
-  def __init__(self, sloc, *members):
+  def __init__(self, location, *members):
     duplicates = [name for name, ns in itertools.groupby(sorted(m.name for m in members)) if len(list(ns)) > 1]
     if duplicates:
-      raise exceptions.ParseError('Key %s occurs more than once in tuple at %s' % (', '.join(duplicates), sloc.error_in_context('')))
+      raise exceptions.ParseError('Key %s occurs more than once in tuple at %s' % (', '.join(duplicates), location.error_in_context('')))
 
     self.ident = framework.obj_ident()
     self.members = members
     self.member = {m.name: m for m in self.members}
+    self.location = location
     self._cache = framework.Cache()
 
   def eval(self, env):
@@ -336,6 +386,9 @@ class TupleNode(framework.Thunk):
     schema = schema_spec_from_tuple(t)
     t.attach_schema(schema)
     return t
+
+  def _children(self):
+    return self.members
 
   def __repr__(self):
     return ('{' +
@@ -358,7 +411,7 @@ def dict2tuple(dct):
     return runtime.Tuple(RuntimeTupleNode(dct), framework.EmptyEnvironment(), dict2tuple)
 
 
-class Application(framework.Thunk):
+class Application(framework.Thunk, AstNode):
   """Function application."""
   def __init__(self, location, left, right):
     self.location = location
@@ -393,6 +446,9 @@ class Application(framework.Thunk):
       # Wrap exceptions
       raise exceptions.EvaluationError(self.location.error_in_context('while calling \'%r\'' % self), e)
 
+  def _children(self):
+    return [self.left, self.right]
+
   def __repr__(self):
     return '%r(%r)' % (self.left, self.right)
 
@@ -416,14 +472,13 @@ class Application(framework.Thunk):
     raise exceptions.EvaluationError("Can't apply %r to argument (%r): integer expected, got %r" % (self.left, self.right, right))
 
 
-def mkApplications(s, loc, atoms):
+def mkApplications(location, *atoms):
   """Make a sequence of applications from a list of tokens.
 
   atoms is a list of atoms, which will be handled left-associatively. E.g:
 
       ['foo', [], []] == foo()() ==> Application(Application('foo', []), [])
   """
-  location = SourceLocation(s, loc)
   atoms = list(atoms)
   while len(atoms) > 1:
     atoms[0:2] = [Application(location, atoms[0], atoms[1])]
@@ -432,11 +487,14 @@ def mkApplications(s, loc, atoms):
   return atoms[0]
 
 
-class UnOp(framework.Thunk):
+class UnOp(framework.Thunk, AstNode):
   def __init__(self, op, right):
     self.ident = framework.obj_ident()
     self.op = op
     self.right = right
+
+  def _found_by(self, q):
+    return False
 
   def eval(self, env):
     fn = functions.unary_operators.get(self.op, None)
@@ -458,6 +516,9 @@ class BinOp(framework.Thunk):
     self.left = left
     self.op = op
     self.right = right
+
+  def _found_by(self, q):
+    return False
 
   def eval(self, env):
     fn = functions.all_binary_operators.get(self.op, None)
@@ -493,13 +554,16 @@ def call_fn(fn, arglist, env):
   return fn(*evaled_args)
 
 
-class Deref(framework.Thunk):
+class Deref(framework.Thunk, AstNode):
   """Dereferencing of a dictionary-like object."""
-  def __init__(self, haystack, needle, location):
+  def __init__(self, location, haystack, needle):
+    self.location = location
     self.ident = framework.obj_ident()
     self.haystack = haystack
     self.needle = needle
-    self.location = location
+
+  def _children(self):
+    return [self.haystack, self.needle]
 
   def eval(self, env):
     try:
@@ -514,20 +578,25 @@ class Deref(framework.Thunk):
     return '%s.%s' % (self.haystack, self.needle)
 
 
-def mkDerefs(s, loc, tokens):
-  location = SourceLocation(s, loc)
+def mkDerefs(location, *tokens):
   tokens = list(tokens)
   while len(tokens) > 1:
-    tokens[0:2] = [Deref(tokens[0], tokens[1], location)]
+    tokens[0:2] = [Deref(location, tokens[0], tokens[1])]
   return tokens[0]
 
 
-class Condition(framework.Thunk):
-  def __init__(self, cond, then, else_):
+class Condition(framework.Thunk, AstNode):
+  def __init__(self, _, cond, then, else_):
     self.ident = framework.obj_ident()
     self.cond = cond
     self.then = then
     self.else_ = else_
+
+  def _children(self):
+    return [self.cond, self.then, self.else_]
+
+  def _found_by(self, q):
+    return False
 
   def eval(self, env):
     if framework.eval(self.cond, env):
@@ -539,13 +608,16 @@ class Condition(framework.Thunk):
     return 'if %r then %r else %r' % (self.cond, self.then, self.else_)
 
 
-class ListComprehension(framework.Thunk):
-  def __init__(self, expr, var, collection, cond=None):
+class ListComprehension(framework.Thunk, AstNode):
+  def __init__(self, location, expr, var, collection, cond=None):
     self.ident = framework.obj_ident()
     self.expr = expr
     self.var = var
     self.collection = collection
     self.cond = cond
+
+  def _children(self):
+    return [self.expr, self.var, self.collection, self.cond]
 
   def eval(self, env):
     ret = []
@@ -559,12 +631,15 @@ class ListComprehension(framework.Thunk):
     return '[%r for %r in %r]' % (self.expr, self.var, self.collection)
 
 
-class Void(framework.Thunk):
+class Void(framework.Thunk, AstNode):
   """A missing value."""
-  def __init__(self, name, location):
-    self.name = name
+  def __init__(self, location, name):
     self.location = location
+    self.name = name
     self.ident = framework.obj_ident()
+
+  def _found_by(self, q):
+    return False
 
   def eval(self, env):
     raise exceptions.EvaluationError(self.location.error_in_context('Unbound value: %r' % self.name))
@@ -576,12 +651,15 @@ class Void(framework.Thunk):
     return '<unbound>'
 
 
-class Include(framework.Thunk):
-  def __init__(self, file_ref):
+class Include(framework.Thunk, AstNode):
+  def __init__(self, location, file_ref):
     self.ident = framework.obj_ident()
     self.file_ref = file_ref
     self.current_file = the_context.filename
     self.loader = the_context.loader
+
+  def _children(self):
+    return [self.file_ref]
 
   def eval(self, env):
     file_ref = framework.eval(self.file_ref, env)
@@ -652,8 +730,8 @@ class MemberSchemaNode(framework.Thunk):
 
 
   """
-  def __init__(self, sloc, private, required, expr):
-    self.sloc = sloc
+  def __init__(self, location, private, required, expr):
+    self.location = location
     self.private = private
     self.required = required
     self.expr = expr
@@ -798,32 +876,32 @@ quotedIdentifier = p.QuotedString('`', multiline=False)
 identifier = quotedIdentifier | p.Regex(r'[a-zA-Z_]([a-zA-Z0-9_:-]*[a-zA-Z0-9_])?')
 
 # Contants
-integer = p.Word(p.nums).setParseAction(do(head, int, Literal))
-floating = p.Regex(r'\d*\.\d+').setParseAction(do(head, float, Literal))
-dq_string = p.QuotedString('"', escChar='\\', unquoteResults=False, multiline=True).setParseAction(do(head, unquote, Literal))
-sq_string = p.QuotedString("'", escChar='\\', unquoteResults=False, multiline=True).setParseAction(do(head, unquote, Literal))
-boolean = (p.Keyword('true') | p.Keyword('false')).setParseAction(do(head, mkBool, Literal))
-null = p.Keyword('null').setParseAction(Null)
+integer = parseWithLocation(p.Word(p.nums), convertAndMake(int, Literal))
+floating = parseWithLocation(p.Regex(r'\d*\.\d+'), convertAndMake(float, Literal))
+dq_string = parseWithLocation(p.QuotedString('"', escChar='\\', unquoteResults=False, multiline=True), convertAndMake(unquote, Literal))
+sq_string = parseWithLocation(p.QuotedString("'", escChar='\\', unquoteResults=False, multiline=True), convertAndMake(unquote, Literal))
+boolean = parseWithLocation(p.Keyword('true') | p.Keyword('false'), convertAndMake(mkBool, Literal))
+null = parseWithLocation(p.Keyword('null'), Null)
+
+# Variable identifier (can't be any of the keywords, which may have lower matching priority)
+variable = ~p.Or([p.Keyword(k) for k in keywords]) + parseWithLocation(identifier.copy(), Var)
 
 # List
-list_ = bracketedList('[', ']', ',', expression).setParseAction(List)
+list_ = parseWithLocation(bracketedList('[', ']', ',', expression), List)
 
 # Tuple
-inherit = (kw('inherit') - p.ZeroOrMore(identifier)).setParseAction(mkInherits)
-schema_spec = (p.Optional(p.Keyword('private').setParseAction(lambda: True), default=False)
+inherit = (kw('inherit') - p.ZeroOrMore(variable)).setParseAction(inheritNodes)
+schema_spec = parseWithLocation(p.Optional(p.Keyword('private').setParseAction(lambda: True), default=False)
                - p.Optional(p.Keyword('required').setParseAction(lambda: True), default=False)
-               - p.Optional(expression, default=any_scheam_expr)).setParseAction(pafac(MemberSchemaNode))
+               - p.Optional(expression, default=any_scheam_expr), MemberSchemaNode)
 optional_schema = p.Optional(p.Suppress(':') - schema_spec, default=no_schema)
 
-void_member = (identifier + optional_schema + ~p.FollowedBy('=')).setParseAction(lambda s, loc, x: TupleMemberNode(SourceLocation(s, loc), x[0], x[1], Void(x[0], SourceLocation(s, loc))))
-value_member = (identifier - optional_schema - p.Suppress('=') - expression).setParseAction(pafac(TupleMemberNode))
-member_decl = (p.ZeroOrMore(doc_comment).setParseAction(pafac(DocComment)) + (void_member | value_member)).setParseAction(pafac(attach_doc_comment))
+void_member = parseWithLocation(identifier + optional_schema + ~p.FollowedBy('='), voidMember)
+value_member = parseWithLocation(identifier - optional_schema - p.Suppress('=') - expression, TupleMemberNode)
+member_decl = parseWithLocation(parseWithLocation(p.ZeroOrMore(doc_comment), DocComment) + (void_member | value_member), attach_doc_comment)
 tuple_member = inherit | member_decl
 tuple_members = parseWithLocation(listMembers(';', tuple_member), TupleNode)
-tuple = bracketedList('{', '}', ';', tuple_member).setParseAction(pafac(TupleNode))
-
-# Variable (can't be any of the keywords, which may have lower matching priority)
-variable = ~p.Or([p.Keyword(k) for k in keywords]) + identifier.copy().setParseAction(mkVar)
+tuple = parseWithLocation(bracketedList('{', '}', ';', tuple_member), TupleNode)
 
 # Argument list will live by itself as a atom. Actually, it's a tuple, but we
 # don't call it that because we use that term for something else already :)
@@ -833,18 +911,18 @@ parenthesized_expr = (sym('(') - expression - ')').setParseAction(head)
 
 unary_op = (p.oneOf(' '.join(functions.unary_operators.keys())) - expression).setParseAction(mkUnOp)
 
-if_then_else = (kw('if') + expression +
+if_then_else = parseWithLocation(kw('if') + expression +
                 kw('then') - expression -
-                kw('else') - expression).setParseAction(doapply(Condition))
+                kw('else') - expression, Condition)
 
-list_comprehension = (sym('[') + expression + kw('for') - variable - kw('in') -
-    expression - p.Optional(kw('if') - expression) - sym(']')).setParseAction(doapply(ListComprehension))
+list_comprehension = parseWithLocation(sym('[') + expression + kw('for') - variable - kw('in') -
+    expression - p.Optional(kw('if') - expression) - sym(']'), ListComprehension)
 
 
 # We don't allow space-application here
 # Now our grammar is becoming very dirty and hackish
 deref = p.Forward()
-include = (kw('include') - deref).setParseAction(doapply(Include))
+include = parseWithLocation(kw('include') - deref, Include)
 
 atom = (tuple
         | variable
@@ -865,10 +943,10 @@ atom = (tuple
 # We have two different forms of function application, so they can have 2
 # different precedences. This one: fn(args), which binds stronger than
 # dereferencing (fn(args).attr == (fn(args)).attr)
-applic1 = (atom - p.ZeroOrMore(arg_list)).setParseAction(mkApplications)
+applic1 = parseWithLocation(atom - p.ZeroOrMore(arg_list), mkApplications)
 
 # Dereferencing of an expression (obj.bar)
-deref << (applic1 - p.ZeroOrMore(p.Suppress('.') - identifier)).setParseAction(mkDerefs)
+deref << parseWithLocation(applic1 - p.ZeroOrMore(p.Suppress('.') - identifier), mkDerefs)
 
 # All binary operators at various precedence levels go here:
 # This piece of code does the moral equivalent of:
@@ -883,7 +961,7 @@ for op_level in functions.binary_operators_before_juxtaposition:
   term = (term - p.ZeroOrMore(p.oneOf(operator_syms) - term)).setParseAction(mkBinOps)
 
 # Juxtaposition function application (fn arg), must be 1-arg every time
-applic2 = (term - p.ZeroOrMore(term)).setParseAction(mkApplications)
+applic2 = parseWithLocation(term - p.ZeroOrMore(term), mkApplications)
 
 term = applic2
 for op_level in functions.binary_operators_after_juxtaposition:

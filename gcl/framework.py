@@ -135,6 +135,12 @@ class Environment(object):
       return self.values[key]
     return self.parent[key]
 
+  def get_node(self, key):
+    """Delegate to our current "value provider" for the node belonging to this key."""
+    if key in self.names:
+      return self.values.get_member_node(key) if hasattr(self.values, 'get_member_node') else None
+    return self.parent.get_node(key)
+
   def __contains__(self, key):
     if key in self.names:
       return True
@@ -167,6 +173,9 @@ class EmptyEnvironment(object):
     self.ident = obj_ident()
 
   def __getitem__(self, key):
+    raise exceptions.UnboundNameError('Unbound variable: %r' % key)
+
+  def get_node(self, key):
     raise exceptions.UnboundNameError('Unbound variable: %r' % key)
 
   def __contains__(self, key):

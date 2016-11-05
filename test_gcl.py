@@ -765,4 +765,3 @@ class TestRuntimeCaps(unittest.TestCase):
     """)
     self.assertEquals('wootwoot',
                       x.compose({ 'single': 'toot' }).compose({'single': 'woot'})['double'])
-

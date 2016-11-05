@@ -1,0 +1,16 @@
+USE CASES FOR CODE INSIGHT
+
+- Point at variable, see value, see where it is defined
+- Point at definition, see current expansion?
+- Floating autocomplete: find all variables in scope
+- Deref autocomplete: finish members
+- Underline parse errors
+
+
+THINGS TO CHECK
+---------------
+
+base
+composite tuples
+inherited tuples
+with inherit fields
