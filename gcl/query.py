@@ -20,9 +20,13 @@ class QueryError(RuntimeError):
 def mkAlternates(x):
   return tuple(x)
 
-variable = ast.variable.copy().setParseAction(lambda x: str(x[0]))
+
+gcl_grammar = ast.normal_grammar()
+
+variable = gcl_grammar.variable.copy().setParseAction(lambda x: str(x[0]))
 alts = ast.bracketedList('{', '}', ',', variable).setParseAction(mkAlternates)
-list_index = ast.sym('[') + ast.integer.copy().setParseAction(lambda x: int(x[0])) + ast.sym(']')
+# integer parses as [start_offset, 'matched', end_offset]
+list_index = ast.sym('[') + gcl_grammar.integer.copy().setParseAction(lambda ts: int(ts[1])) + ast.sym(']')
 everything = p.Literal('*')
 element = variable | alts | list_index | everything
 
@@ -31,6 +35,8 @@ selector = p.Group(p.Optional(element + p.ZeroOrMore(ast.sym('.') + element)))
 
 def parseSelector(s):
   try:
+    print selector, s
+    print selector.parseString(s, parseAll=True)[0]
     return selector.parseString(s, parseAll=True)[0]
   except p.ParseException as e:
     raise RuntimeError('Error parsing %r: %s' % (s, e))

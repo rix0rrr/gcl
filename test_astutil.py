@@ -20,7 +20,7 @@ class TestEnumerateScope(unittest.TestCase):
     other = {
       foo = 1;
     }
-    """.strip()
+    """
     scope = readAndQueryScope(source, 3, 8) # foo
     assert 'henk' in scope
     assert 'foo' in scope
@@ -29,7 +29,7 @@ class TestEnumerateScope(unittest.TestCase):
     source = """
     A = { henk = 5 };
     B = A { foo = 1 };
-    """.strip()
+    """
     scope = readAndQueryScope(source, 2, 14)  # foo
     assert 'henk' not in scope
     assert 'foo' in scope
@@ -38,7 +38,7 @@ class TestEnumerateScope(unittest.TestCase):
     source = """
     A = { henk = 5 };
     B = A { henk; foo = 1 };
-    """.strip()
+    """
     scope = readAndQueryScope(source, 2, 14)  # foo
     assert 'henk' in scope
     assert 'foo' in scope
@@ -47,7 +47,7 @@ class TestEnumerateScope(unittest.TestCase):
     source = """
     henk = 5;
     B = { inherit henk }
-    """.strip()
+    """
     scope = readAndQueryScope(source, 2, 14)  # inner tuple
     assert 'henk' in scope
     assert scope['henk'].location.lineno == 2  # Find the right henk
@@ -59,7 +59,42 @@ class TestEnumerateScope(unittest.TestCase):
     assert '+' in scope
 
 
-def readAndQueryScope(source, line, col):
-    tree = gcl.reads(source, filename='input.gcl')
+class TestBrokenParseRecovery(unittest.TestCase):
+  def testUnparseableValue(self):
+    scope = readAndQueryScope("""
+    outer = 1;
+    tup = {
+      pre_inner = 2;
+      broken = + + ax 89sdf/b8;
+      post_inner = 3;
+    }
+    """, 4, 10, allow_errors=True)
+    self.assertSetEqual(set(['outer', 'tup', 'pre_inner', 'broken', 'post_inner']), set(scope.keys()))
+
+  def testUnparseableTupleLineMissingSemicolon(self):
+    scope = readAndQueryScope("""
+    outer = 1;
+    tup = {
+      pre_inner = 2;
+      broken = + + ax 89sdf/b8
+      post_inner = 3;
+    }
+    """, 4, 10, allow_errors=True)
+    self.assertSetEqual(set(['outer', 'tup', 'pre_inner', 'broken']), set(scope.keys()))
+
+  def testUnparseableTupleLineCompleteGarbage(self):
+    scope = readAndQueryScope("""
+    outer = 1;
+    tup = {
+      pre_inner = 2;
+      + + ax 89sdf/b8;
+      post_inner = 3;
+    }
+    """, 4, 10, allow_errors=True)
+    self.assertSetEqual(set(['outer', 'tup', 'pre_inner', 'post_inner']), set(scope.keys()))
+
+
+def readAndQueryScope(source, line, col, **kwargs):
+    tree = gcl.reads(source.strip(), filename='input.gcl', **kwargs)
     rootpath = tree.find_tokens(gcl.SourceQuery('input.gcl', line, col))
     return ast_util.enumerate_scope(rootpath)

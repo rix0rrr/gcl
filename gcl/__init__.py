@@ -74,21 +74,23 @@ _default_bindings.update(schema.builtin_schemas)
 
 default_env = framework.Environment(_default_bindings)
 
-def reads(s, filename=None, loader=None, implicit_tuple=True):
+def reads(s, filename=None, loader=None, implicit_tuple=True, allow_errors=False):
   """Load but don't evaluate a GCL expression from a string."""
   return ast.reads(s,
-      filename or '<input>',
-      loader or default_loader,
-      implicit_tuple)
+      filename=filename or '<input>',
+      loader=loader or default_loader,
+      implicit_tuple=implicit_tuple,
+      allow_errors=allow_errors)
 
 
-def read(filename, loader=None, implicit_tuple=True):
+def read(filename, loader=None, implicit_tuple=True, allow_errors=False):
   """Load but don't evaluate a GCL expression from a file."""
   with open(filename, 'r') as f:
     return reads(f.read(),
                  filename=filename,
                  loader=loader,
-                 implicit_tuple=implicit_tuple)
+                 implicit_tuple=implicit_tuple,
+                 allow_errors=allow_errors)
 
 
 mod_schema = schema  # Just because I want to use schema as a keyword argument below

@@ -116,9 +116,12 @@ class SourceLocation(object):
     msg = '%s:%d: %s in \'%s\'' % (self.filename, self.lineno, msg, self.line)
     return msg
 
+  def original_string(self):
+    return self.string[self.start_offset:self.end_offset]
+
   def __str__(self):
     if self.end_offset:
-      return self.string[:self.start_offset] + '[' + self.string[self.start_offset:self.end_offset] + ']' + self.string[self.end_offset:]
+      return self.string[:self.start_offset] + '[' + self.original_string() + ']' + self.string[self.end_offset:]
     else:
       return self.string[:self.start_offset] + '|' + self.string[self.start_offset:]
 
@@ -203,10 +206,6 @@ def inheritNodes(tokens):
   for t in tokens:
     assert isinstance(t, Var)
   return [TupleMemberNode(t.location, t.name, no_schema, Inherit(t.location, t.name)) for t in list(tokens)]
-
-
-def voidMember(location, identifier, schema):
-  return TupleMemberNode(location, identifier, schema, Void(location, identifier))
 
 
 class Literal(framework.Thunk, AstNode):
@@ -295,6 +294,13 @@ class TupleMemberNode(AstNode):
     self.member_schema = schema
     self.comment = DocComment(location)
 
+    # Hack: set the name on the value if it is a Void value, to help the Void
+    # generate better error messages. Not doing it here makes the grammar a lot
+    # messier.
+    if isinstance(self.value, Void):
+      self.value.name = name
+
+
   def attach_comment(self, comment):
     self.comment = comment
 
@@ -359,6 +365,10 @@ def attach_doc_comment(_, comment, member):
   return member
 
 
+def is_tuple_member(x):
+  return isinstance(x, TupleMemberNode)
+
+
 class TupleNode(framework.Thunk, AstNode):
   """AST node for tuple
 
@@ -366,6 +376,9 @@ class TupleNode(framework.Thunk, AstNode):
   Tuple object that only evaluates the elements when they're requested.
   """
   def __init__(self, location, *members):
+    # Filter contents down to actual members (ignore UnparseableNodes)
+    members = [m for m in members if is_tuple_member(m)]
+
     duplicates = [name for name, ns in itertools.groupby(sorted(m.name for m in members)) if len(list(ns)) > 1]
     if duplicates:
       raise exceptions.ParseError('Key %s occurs more than once in tuple at %s' % (', '.join(duplicates), location.error_in_context('')))
@@ -631,6 +644,19 @@ class ListComprehension(framework.Thunk, AstNode):
     return '[%r for %r in %r]' % (self.expr, self.var, self.collection)
 
 
+class UnparseableNode(framework.Thunk, AstNode):
+  """An unparseable exception."""
+  def __init__(self, location):
+    self.location = location
+    self.ident = framework.obj_ident()
+
+  def eval(self, env):
+    raise exceptions.EvaluationError(self.location.error_in_context('Unparseable expression'))
+
+  def __repr__(self):
+    return self.location.original_string()
+
+
 class Void(framework.Thunk, AstNode):
   """A missing value."""
   def __init__(self, location, name):
@@ -696,7 +722,7 @@ class AnySchemaExprNode(framework.Thunk):
   def eval(self, env):
     return schema.AnySchema()
 
-any_scheam_expr = AnySchemaExprNode()
+any_schema_expr = AnySchemaExprNode()
 
 
 class MemberSchemaNode(framework.Thunk):
@@ -860,128 +886,151 @@ UNQUOTE_MAP = {
     }
 
 
-keywords = ['and', 'or', 'not', 'if', 'then', 'else', 'include', 'inherit', 'null', 'true', 'false',
-    'for', 'in']
+GRAMMAR_CACHE = {}
+def make_grammar(allow_errors):
+  """Make the part of the grammar that depends on whether we swallow errors or not."""
+  if allow_errors in GRAMMAR_CACHE:
+    return GRAMMAR_CACHE[allow_errors]
 
-expression = p.Forward()
+  def swallow_errors(synchronizing_tokens):
+    return parseWithLocation(p.Suppress(p.CharsNotIn(synchronizing_tokens, min=1)), UnparseableNode) if allow_errors else p.NoMatch()
 
-comment = p.Regex('#[^.]') + p.restOfLine
-doc_comment = (sym('#.') + p.restOfLine)
+  class Grammar:
+    keywords = ['and', 'or', 'not', 'if', 'then', 'else', 'include', 'inherit', 'null', 'true', 'false',
+        'for', 'in']
 
-quotedIdentifier = p.QuotedString('`', multiline=False)
+    expression = p.Forward()
 
-# - Must start with an alphascore
-# - May contain alphanumericscores and special characters such as : and -
-# - Must not end in a special character
-identifier = quotedIdentifier | p.Regex(r'[a-zA-Z_]([a-zA-Z0-9_:-]*[a-zA-Z0-9_])?')
+    comment = p.Regex('#[^.]') + p.restOfLine
+    doc_comment = (sym('#.') + p.restOfLine)
 
-# Contants
-integer = parseWithLocation(p.Word(p.nums), convertAndMake(int, Literal))
-floating = parseWithLocation(p.Regex(r'\d*\.\d+'), convertAndMake(float, Literal))
-dq_string = parseWithLocation(p.QuotedString('"', escChar='\\', unquoteResults=False, multiline=True), convertAndMake(unquote, Literal))
-sq_string = parseWithLocation(p.QuotedString("'", escChar='\\', unquoteResults=False, multiline=True), convertAndMake(unquote, Literal))
-boolean = parseWithLocation(p.Keyword('true') | p.Keyword('false'), convertAndMake(mkBool, Literal))
-null = parseWithLocation(p.Keyword('null'), Null)
+    quotedIdentifier = p.QuotedString('`', multiline=False)
 
-# Variable identifier (can't be any of the keywords, which may have lower matching priority)
-variable = ~p.Or([p.Keyword(k) for k in keywords]) + parseWithLocation(identifier.copy(), Var)
+    # - Must start with an alphascore
+    # - May contain alphanumericscores and special characters such as : and -
+    # - Must not end in a special character
+    identifier = quotedIdentifier | p.Regex(r'[a-zA-Z_]([a-zA-Z0-9_:-]*[a-zA-Z0-9_])?')
 
-# List
-list_ = parseWithLocation(bracketedList('[', ']', ',', expression), List)
+    # Variable identifier (can't be any of the keywords, which may have lower matching priority)
+    variable = ~p.Or([p.Keyword(k) for k in keywords]) + parseWithLocation(identifier.copy(), Var)
 
-# Tuple
-inherit = (kw('inherit') - p.ZeroOrMore(variable)).setParseAction(inheritNodes)
-schema_spec = parseWithLocation(p.Optional(p.Keyword('private').setParseAction(lambda: True), default=False)
-               - p.Optional(p.Keyword('required').setParseAction(lambda: True), default=False)
-               - p.Optional(expression, default=any_scheam_expr), MemberSchemaNode)
-optional_schema = p.Optional(p.Suppress(':') - schema_spec, default=no_schema)
+    # Contants
+    integer = parseWithLocation(p.Word(p.nums), convertAndMake(int, Literal))
+    floating = parseWithLocation(p.Regex(r'\d*\.\d+'), convertAndMake(float, Literal))
+    dq_string = parseWithLocation(p.QuotedString('"', escChar='\\', unquoteResults=False, multiline=True), convertAndMake(unquote, Literal))
+    sq_string = parseWithLocation(p.QuotedString("'", escChar='\\', unquoteResults=False, multiline=True), convertAndMake(unquote, Literal))
+    boolean = parseWithLocation(p.Keyword('true') | p.Keyword('false'), convertAndMake(mkBool, Literal))
+    null = parseWithLocation(p.Keyword('null'), Null)
 
-void_member = parseWithLocation(identifier + optional_schema + ~p.FollowedBy('='), voidMember)
-value_member = parseWithLocation(identifier - optional_schema - p.Suppress('=') - expression, TupleMemberNode)
-member_decl = parseWithLocation(parseWithLocation(p.ZeroOrMore(doc_comment), DocComment) + (void_member | value_member), attach_doc_comment)
-tuple_member = inherit | member_decl
-tuple_members = parseWithLocation(listMembers(';', tuple_member), TupleNode)
-tuple = parseWithLocation(bracketedList('{', '}', ';', tuple_member), TupleNode)
+    # List
+    list_ = parseWithLocation(bracketedList('[', ']', ',', expression), List)
 
-# Argument list will live by itself as a atom. Actually, it's a tuple, but we
-# don't call it that because we use that term for something else already :)
-arg_list = bracketedList('(', ')', ',', expression).setParseAction(ArgList)
+    # Tuple
+    inherit = (kw('inherit') + p.ZeroOrMore(variable)).setParseAction(inheritNodes)
+    schema_spec = parseWithLocation(p.Optional(p.Keyword('private').setParseAction(lambda: True), default=False)
+                  + p.Optional(p.Keyword('required').setParseAction(lambda: True), default=False)
+                  + p.Optional(expression | swallow_errors(';}'), default=any_schema_expr), MemberSchemaNode)
+    optional_schema = p.Optional(p.Suppress(':') - (schema_spec | swallow_errors('=;}')), default=no_schema)
 
-parenthesized_expr = (sym('(') - expression - ')').setParseAction(head)
+    expression_value = sym('=') - (expression | swallow_errors(';}'))
+    void_value = parseWithLocation(p.FollowedBy(sym(';') | sym('}')), lambda loc: Void(loc, 'nonameyet'))
+    member_value = expression_value | void_value
+    named_member = parseWithLocation(identifier + optional_schema + member_value, TupleMemberNode)
+    documented_member = parseWithLocation(parseWithLocation(p.ZeroOrMore(doc_comment), DocComment) + named_member, attach_doc_comment)
+    tuple_member = inherit | documented_member | swallow_errors(';}')
 
-unary_op = (p.oneOf(' '.join(functions.unary_operators.keys())) - expression).setParseAction(mkUnOp)
+    tuple_members = parseWithLocation(listMembers(';', tuple_member), TupleNode)
+    tuple = parseWithLocation(bracketedList('{', '}', ';', tuple_member), TupleNode)
 
-if_then_else = parseWithLocation(kw('if') + expression +
-                kw('then') - expression -
-                kw('else') - expression, Condition)
+    # Argument list will live by itself as a atom. Actually, it's a tuple, but we
+    # don't call it that because we use that term for something else already :)
+    arg_list = bracketedList('(', ')', ',', expression).setParseAction(ArgList)
 
-list_comprehension = parseWithLocation(sym('[') + expression + kw('for') - variable - kw('in') -
-    expression - p.Optional(kw('if') - expression) - sym(']'), ListComprehension)
+    parenthesized_expr = (sym('(') - expression - ')').setParseAction(head)
 
+    unary_op = (p.oneOf(' '.join(functions.unary_operators.keys())) - expression).setParseAction(mkUnOp)
 
-# We don't allow space-application here
-# Now our grammar is becoming very dirty and hackish
-deref = p.Forward()
-include = parseWithLocation(kw('include') - deref, Include)
+    if_then_else = parseWithLocation(kw('if') + expression +
+                    kw('then') - expression -
+                    kw('else') - expression, Condition)
 
-atom = (tuple
-        | variable
-        | dq_string
-        | sq_string
-        | boolean
-        | list_comprehension
-        | list_
-        | null
-        | unary_op
-        | parenthesized_expr
-        | if_then_else
-        | include
-        | floating
-        | integer
-        )
-
-# We have two different forms of function application, so they can have 2
-# different precedences. This one: fn(args), which binds stronger than
-# dereferencing (fn(args).attr == (fn(args)).attr)
-applic1 = parseWithLocation(atom - p.ZeroOrMore(arg_list), mkApplications)
-
-# Dereferencing of an expression (obj.bar)
-deref << parseWithLocation(applic1 - p.ZeroOrMore(p.Suppress('.') - identifier), mkDerefs)
-
-# All binary operators at various precedence levels go here:
-# This piece of code does the moral equivalent of:
-#
-#     T = F*F | F/F | F
-#     E = T+T | T-T | T
-#
-# etc.
-term = deref
-for op_level in functions.binary_operators_before_juxtaposition:
-  operator_syms = ' '.join(op_level.keys())
-  term = (term - p.ZeroOrMore(p.oneOf(operator_syms) - term)).setParseAction(mkBinOps)
-
-# Juxtaposition function application (fn arg), must be 1-arg every time
-applic2 = parseWithLocation(term - p.ZeroOrMore(term), mkApplications)
-
-term = applic2
-for op_level in functions.binary_operators_after_juxtaposition:
-  operator_syms = ' '.join(op_level.keys())
-  term = (term - p.ZeroOrMore(p.oneOf(operator_syms) - term)).setParseAction(mkBinOps)
-
-expression << term
-
-# Two entry points: start at an arbitrary expression, or expect the top-level
-# scope to be a tuple.
-start = expression.ignore(comment)
-start_tuple = tuple_members.ignore(comment)
+    list_comprehension = parseWithLocation(sym('[') + expression + kw('for') - variable - kw('in') -
+        expression - p.Optional(kw('if') - expression) - sym(']'), ListComprehension)
 
 
-def reads(s, filename, loader, implicit_tuple):
+    # We don't allow space-application here
+    # Now our grammar is becoming very dirty and hackish
+    deref = p.Forward()
+    include = parseWithLocation(kw('include') - deref, Include)
+
+    atom = (tuple
+            | variable
+            | dq_string
+            | sq_string
+            | boolean
+            | list_comprehension
+            | list_
+            | null
+            | unary_op
+            | parenthesized_expr
+            | if_then_else
+            | include
+            | floating
+            | integer
+            )
+
+    # We have two different forms of function application, so they can have 2
+    # different precedences. This one: fn(args), which binds stronger than
+    # dereferencing (fn(args).attr == (fn(args)).attr)
+    applic1 = parseWithLocation(atom - p.ZeroOrMore(arg_list), mkApplications)
+
+    # Dereferencing of an expression (obj.bar)
+    deref << parseWithLocation(applic1 - p.ZeroOrMore(p.Suppress('.') - identifier), mkDerefs)
+
+    # All binary operators at various precedence levels go here:
+    # This piece of code does the moral equivalent of:
+    #
+    #     T = F*F | F/F | F
+    #     E = T+T | T-T | T
+    #
+    # etc.
+    term = deref
+    for op_level in functions.binary_operators_before_juxtaposition:
+      operator_syms = ' '.join(op_level.keys())
+      term = (term - p.ZeroOrMore(p.oneOf(operator_syms) - term)).setParseAction(mkBinOps)
+
+    # Juxtaposition function application (fn arg), must be 1-arg every time
+    applic2 = parseWithLocation(term - p.ZeroOrMore(term), mkApplications)
+
+    term = applic2
+    for op_level in functions.binary_operators_after_juxtaposition:
+      operator_syms = ' '.join(op_level.keys())
+      term = (term - p.ZeroOrMore(p.oneOf(operator_syms) - term)).setParseAction(mkBinOps)
+
+    expression << term
+
+    # Two entry points: start at an arbitrary expression, or expect the top-level
+    # scope to be a tuple.
+    start = expression.ignore(comment)
+    start_tuple = tuple_members.ignore(comment)
+  GRAMMAR_CACHE[allow_errors] = Grammar
+  return Grammar
+
+
+def normal_grammar(): return make_grammar(False)
+def lenient_grammar(): return make_grammar(True)
+
+
+def reads(s, filename, loader, implicit_tuple, allow_errors):
   """Load but don't evaluate a GCL expression from a string."""
   try:
     the_context.filename = filename
     the_context.loader = loader
-    return (start_tuple if implicit_tuple else start).parseWithTabs().parseString(s, parseAll=True)[0]
+
+    grammar = make_grammar(allow_errors=allow_errors)
+    root = grammar.start_tuple if implicit_tuple else grammar.start
+
+    return root.parseWithTabs().parseString(s, parseAll=True)[0]
   except (p.ParseException, p.ParseSyntaxException) as e:
     msg = '%s:%d: %s\n%s\n%s^-- here' % (the_context.filename, e.lineno, e.msg, e.line, ' ' * (e.col - 1))
     raise exceptions.ParseError(msg)

@@ -731,6 +731,7 @@ class TestErrorMessages(unittest.TestCase):
     x = parse('{ x = { boo = "bah" }}')
     try:
       print(x['foo'])
+      self.fail('Should have thrown')
     except Exception as e:
       self.assertTrue('boo' in str(e))
 
@@ -738,6 +739,7 @@ class TestErrorMessages(unittest.TestCase):
     x = parse('{ x = { boo = "bah" } { bie = "bye" } }')
     try:
       print(x['foo'])
+      self.fail('Should have thrown')
     except Exception as e:
       self.assertTrue('boo' in str(e))
 
@@ -745,8 +747,19 @@ class TestErrorMessages(unittest.TestCase):
     x = parse('{ x = { boo = "bah" } { foo = base.bye } }')
     try:
       print(x['foo'])
+      self.fail('Should have thrown')
     except Exception as e:
       self.assertTrue('boo' in str(e))
+
+  def testNameOfVoidVariableIsMentioned(self):
+    x = parse('{ the_var; }')
+    try:
+      print x['the_var']
+      self.fail('Should have thrown')
+    except Exception as e:
+      print str(e)
+      self.assertTrue('\'the_var\'' in str(e))
+
 
 
 class TestRuntimeCaps(unittest.TestCase):
