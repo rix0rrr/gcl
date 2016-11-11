@@ -93,6 +93,24 @@ class TestBrokenParseRecovery(unittest.TestCase):
     """, 4, 10, allow_errors=True)
     self.assertSetEqual(set(['outer', 'tup', 'pre_inner', 'post_inner']), set(scope.keys()))
 
+  def testMissingClosingBraceRecover(self):
+    scope = readAndQueryScope("""
+    outer = 1;
+    tup = {
+      inner = 2;
+    """, 3, 10, allow_errors=True)
+    self.assertSetEqual(set(['outer', 'inner', 'tup']), set(scope.keys()))
+
+  def testMissingClosingBraceRecoverDouble(self):
+    scope = readAndQueryScope("""
+    outer = 1;
+    tup = {
+      tap = {
+        inner = 2;
+    };
+    """, 4, 10, allow_errors=True)
+    self.assertSetEqual(set(['outer', 'inner', 'tup', 'tap']), set(scope.keys()))
+
 
 def readAndQueryScope(source, line, col, **kwargs):
     tree = gcl.reads(source.strip(), filename='input.gcl', **kwargs)

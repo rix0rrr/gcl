@@ -14,3 +14,9 @@ base
 composite tuples
 inherited tuples
 with inherit fields
+
+TODO LATER
+----------
+
+Figure out where time is going and optimize, we've gotten slower (probably
+because of more backtracking allowed).

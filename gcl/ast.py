@@ -855,12 +855,13 @@ def listMembers(sep, expr):
                     p.Optional(sep).suppress())
 
 
-def bracketedList(l, r, sep, expr):
+def bracketedList(l, r, sep, expr, allow_missing_close=False):
   """Parse bracketed list.
 
   Empty list is possible, as is a trailing separator.
   """
-  return (sym(l) - listMembers(sep, expr) - sym(r))
+  closer = sym(r) if not allow_missing_close else p.Optional(sym(r))
+  return (sym(l) - listMembers(sep, expr) - closer)
 
 
 def unquote(s):
@@ -940,7 +941,7 @@ def make_grammar(allow_errors):
     tuple_member = inherit | documented_member | swallow_errors(';}')
 
     tuple_members = parseWithLocation(listMembers(';', tuple_member), TupleNode)
-    tuple = parseWithLocation(bracketedList('{', '}', ';', tuple_member), TupleNode)
+    tuple = parseWithLocation(bracketedList('{', '}', ';', tuple_member, allow_missing_close=allow_errors), TupleNode)
 
     # Argument list will live by itself as a atom. Actually, it's a tuple, but we
     # don't call it that because we use that term for something else already :)
