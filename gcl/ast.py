@@ -381,7 +381,7 @@ class TupleNode(framework.Thunk, AstNode):
 
     duplicates = [name for name, ns in itertools.groupby(sorted(m.name for m in members)) if len(list(ns)) > 1]
     if duplicates:
-      raise exceptions.ParseError('Key %s occurs more than once in tuple at %s' % (', '.join(duplicates), location.error_in_context('')))
+      raise exceptions.ParseError(the_context.filename, location, 'Key %s occurs more than once in tuple at %s' % (', '.join(duplicates), location.error_in_context('')))
 
     self.ident = framework.obj_ident()
     self.members = members
@@ -893,8 +893,14 @@ def make_grammar(allow_errors):
   if allow_errors in GRAMMAR_CACHE:
     return GRAMMAR_CACHE[allow_errors]
 
-  def swallow_errors(synchronizing_tokens):
-    return parseWithLocation(p.Suppress(p.CharsNotIn(synchronizing_tokens, min=1)), UnparseableNode) if allow_errors else p.NoMatch()
+  def swallow_errors(rule, synchronizing_tokens):
+    """Extend the production rule by potentially eating errors.
+
+    This does not return a p.NoMatch() because that messes up the error messages.
+    """
+    if allow_errors:
+      rule = rule | parseWithLocation(p.Suppress(p.CharsNotIn(synchronizing_tokens, min=1)), UnparseableNode)
+    return rule
 
   class Grammar:
     keywords = ['and', 'or', 'not', 'if', 'then', 'else', 'include', 'inherit', 'null', 'true', 'false',
@@ -927,18 +933,18 @@ def make_grammar(allow_errors):
     list_ = parseWithLocation(bracketedList('[', ']', ',', expression), List)
 
     # Tuple
-    inherit = (kw('inherit') + p.ZeroOrMore(variable)).setParseAction(inheritNodes)
+    inherit = (kw('inherit') - p.ZeroOrMore(variable)).setParseAction(inheritNodes)
     schema_spec = parseWithLocation(p.Optional(p.Keyword('private').setParseAction(lambda: True), default=False)
-                  + p.Optional(p.Keyword('required').setParseAction(lambda: True), default=False)
-                  + p.Optional(expression | swallow_errors(';}'), default=any_schema_expr), MemberSchemaNode)
-    optional_schema = p.Optional(p.Suppress(':') - (schema_spec | swallow_errors('=;}')), default=no_schema)
+                  - p.Optional(p.Keyword('required').setParseAction(lambda: True), default=False)
+                  - p.Optional(swallow_errors(expression, ';}'), default=any_schema_expr), MemberSchemaNode)
+    optional_schema = p.Optional(p.Suppress(':') - swallow_errors(schema_spec, '=;}'), default=no_schema)
 
-    expression_value = sym('=') - (expression | swallow_errors(';}'))
+    expression_value = sym('=') - swallow_errors(expression, ';}')
     void_value = parseWithLocation(p.FollowedBy(sym(';') | sym('}')), lambda loc: Void(loc, 'nonameyet'))
     member_value = expression_value | void_value
-    named_member = parseWithLocation(identifier + optional_schema + member_value, TupleMemberNode)
+    named_member = parseWithLocation(identifier - optional_schema - member_value, TupleMemberNode)
     documented_member = parseWithLocation(parseWithLocation(p.ZeroOrMore(doc_comment), DocComment) + named_member, attach_doc_comment)
-    tuple_member = inherit | documented_member | swallow_errors(';}')
+    tuple_member = swallow_errors(inherit | documented_member, ';}')
 
     tuple_members = parseWithLocation(listMembers(';', tuple_member), TupleNode)
     tuple = parseWithLocation(bracketedList('{', '}', ';', tuple_member, allow_missing_close=allow_errors), TupleNode)
@@ -1022,6 +1028,20 @@ def normal_grammar(): return make_grammar(False)
 def lenient_grammar(): return make_grammar(True)
 
 
+def find_offset(s, line, col):
+  c_line = 1
+  c_col = 1
+  for i in range(len(s)):
+    if (c_line == line and c_col >= col) or c_line > line:
+      return i
+    if s[i] == '\n':
+      c_col = 1
+      c_line += 1
+    else:
+      c_col += 1
+  return len(s)
+
+
 def reads(s, filename, loader, implicit_tuple, allow_errors):
   """Load but don't evaluate a GCL expression from a string."""
   try:
@@ -1033,5 +1053,5 @@ def reads(s, filename, loader, implicit_tuple, allow_errors):
 
     return root.parseWithTabs().parseString(s, parseAll=True)[0]
   except (p.ParseException, p.ParseSyntaxException) as e:
-    msg = '%s:%d: %s\n%s\n%s^-- here' % (the_context.filename, e.lineno, e.msg, e.line, ' ' * (e.col - 1))
-    raise exceptions.ParseError(msg)
+    loc = SourceLocation(s, find_offset(s, e.lineno, e.col))
+    raise exceptions.ParseError(the_context.filename, loc, e.msg)

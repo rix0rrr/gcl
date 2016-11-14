@@ -4,6 +4,8 @@ from os import path
 import gcl
 from gcl import exceptions
 
+import traceback
+
 def parse(s, env=None, implicit_tuple=False, loader=None):
   return (gcl.reads(s, implicit_tuple=implicit_tuple, loader=loader)
              .eval(gcl.default_env.extend(env)))
@@ -757,9 +759,21 @@ class TestErrorMessages(unittest.TestCase):
       print x['the_var']
       self.fail('Should have thrown')
     except Exception as e:
-      print str(e)
+      print(str(e))
       self.assertTrue('\'the_var\'' in str(e))
 
+  def testParseErrorIndicatesCorrectLocation(self):
+    try:
+      x = parse("""
+        bar = {
+            + woop;
+        };
+      """.strip(), implicit_tuple=True)
+      self.fail('Should have thrown')
+    except gcl.ParseError as e:
+      traceback.print_exc()
+      print(e.sourcelocation.line)
+      self.assertTrue('woop' in e.sourcelocation.line)
 
 
 class TestRuntimeCaps(unittest.TestCase):
