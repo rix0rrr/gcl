@@ -93,6 +93,23 @@ class TestBrokenParseRecovery(unittest.TestCase):
     """, 4, 10, allow_errors=True)
     self.assertSetEqual(set(['outer', 'tup', 'pre_inner', 'post_inner']), set(scope.keys()))
 
+  def testMissingEqualsRecover(self):
+    scope = readAndQueryScope("""
+      foo = 3;
+
+      bar = {
+          bippety bop;
+      };
+      """, 4, 11, allow_errors=True)
+    self.assertSetEqual(set(['foo', 'bar', 'bippety']), set(scope.keys()))
+
+  def testTrailingWordRecover(self):
+    scope = readAndQueryScope("""
+      foo = 3;
+      f
+      """, 2, 1, allow_errors=True)
+    self.assertSetEqual(set(['foo', 'f']), set(scope.keys()))
+
   def testMissingClosingBraceRecover(self):
     scope = readAndQueryScope("""
     outer = 1;
@@ -110,16 +127,6 @@ class TestBrokenParseRecovery(unittest.TestCase):
     };
     """, 4, 10, allow_errors=True)
     self.assertSetEqual(set(['outer', 'inner', 'tup', 'tap']), set(scope.keys()))
-
-  def testOtherRecover(self):
-    scope = readAndQueryScope("""
-      foo = 3;
-
-      bar = {
-          bippety bop;
-      };
-      """, 4, 11, allow_errors=True)
-    self.assertSetEqual(set(['foo', 'bar', 'bippety']), set(scope.keys()))
 
 
 def readAndQueryScope(source, line, col, **kwargs):

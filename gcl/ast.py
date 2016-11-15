@@ -899,7 +899,7 @@ def make_grammar(allow_errors):
     This does not return a p.NoMatch() because that messes up the error messages.
     """
     if allow_errors:
-      rule = rule | parseWithLocation(p.Suppress(p.CharsNotIn(synchronizing_tokens, min=1)), UnparseableNode)
+      rule = rule | parseWithLocation(p.Suppress(p.Regex('[^%s]*' % synchronizing_tokens)), UnparseableNode)
     return rule
 
   class Grammar:
