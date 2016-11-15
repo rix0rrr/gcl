@@ -994,7 +994,7 @@ def make_grammar(allow_errors):
     applic1 = parseWithLocation(atom - p.ZeroOrMore(arg_list), mkApplications)
 
     # Dereferencing of an expression (obj.bar)
-    deref << parseWithLocation(applic1 - p.ZeroOrMore(p.Suppress('.') - identifier), mkDerefs)
+    deref << parseWithLocation(applic1 - p.ZeroOrMore(p.Suppress('.') - swallow_errors(identifier, ';}')), mkDerefs)
 
     # All binary operators at various precedence levels go here:
     # This piece of code does the moral equivalent of:

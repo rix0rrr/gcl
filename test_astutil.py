@@ -135,6 +135,14 @@ class TestBrokenParseRecovery(unittest.TestCase):
     """, 2, 1, allow_errors=True)
     self.assertSetEqual(set(['foo']), set(scope.keys()))
 
+  def testRecoverIncompleteDeref(self):
+    scope = readAndQueryScope("""
+    foo = bar.
+    """, 1, 1, allow_errors=True)
+    self.assertSetEqual(set(['foo']), set(scope.keys()))
+
+
+
 def readAndQueryScope(source, line, col, **kwargs):
     tree = gcl.reads(source.strip(), filename='input.gcl', **kwargs)
     rootpath = tree.find_tokens(gcl.SourceQuery('input.gcl', line, col))
