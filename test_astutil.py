@@ -128,6 +128,12 @@ class TestBrokenParseRecovery(unittest.TestCase):
     """, 4, 10, allow_errors=True)
     self.assertSetEqual(set(['outer', 'inner', 'tup', 'tap']), set(scope.keys()))
 
+  def testRecoverDoubleDefinition(self):
+    scope = readAndQueryScope("""
+    foo = 1;
+    foo = 2;
+    """, 2, 1, allow_errors=True)
+    self.assertSetEqual(set(['foo']), set(scope.keys()))
 
 def readAndQueryScope(source, line, col, **kwargs):
     tree = gcl.reads(source.strip(), filename='input.gcl', **kwargs)

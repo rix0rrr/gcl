@@ -3,6 +3,7 @@ AST and parsing related functions.
 """
 import collections
 import itertools
+import functools
 import string
 import sys
 import textwrap
@@ -375,12 +376,12 @@ class TupleNode(framework.Thunk, AstNode):
   When evaluating, the tuple doesn't actually evaluate its children. Instead, we return a (lazy)
   Tuple object that only evaluates the elements when they're requested.
   """
-  def __init__(self, location, *members):
+  def __init__(self, allow_errors, location, *members):
     # Filter contents down to actual members (ignore UnparseableNodes)
     members = [m for m in members if is_tuple_member(m)]
 
     duplicates = [name for name, ns in itertools.groupby(sorted(m.name for m in members)) if len(list(ns)) > 1]
-    if duplicates:
+    if duplicates and not allow_errors:
       raise exceptions.ParseError(the_context.filename, location, 'Key %s occurs more than once in tuple at %s' % (', '.join(duplicates), location.error_in_context('')))
 
     self.ident = framework.obj_ident()
@@ -946,8 +947,9 @@ def make_grammar(allow_errors):
     documented_member = parseWithLocation(parseWithLocation(p.ZeroOrMore(doc_comment), DocComment) + named_member, attach_doc_comment)
     tuple_member = swallow_errors(inherit | documented_member, ';}')
 
-    tuple_members = parseWithLocation(listMembers(';', tuple_member), TupleNode)
-    tuple = parseWithLocation(bracketedList('{', '}', ';', tuple_member, allow_missing_close=allow_errors), TupleNode)
+    ErrorAwareTupleNode = functools.partial(TupleNode, allow_errors)
+    tuple_members = parseWithLocation(listMembers(';', tuple_member), ErrorAwareTupleNode)
+    tuple = parseWithLocation(bracketedList('{', '}', ';', tuple_member, allow_missing_close=allow_errors), ErrorAwareTupleNode)
 
     # Argument list will live by itself as a atom. Actually, it's a tuple, but we
     # don't call it that because we use that term for something else already :)
