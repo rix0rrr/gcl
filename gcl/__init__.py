@@ -15,7 +15,7 @@ from . import util
 from . import framework
 
 
-__version__ = '0.6.8.1'
+__version__ = '0.6.9'
 
 
 # Namespace copy for backwards compatibility.
