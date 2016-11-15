@@ -17,7 +17,7 @@ def path_until(rootpath, pred):
   return []
 
 
-def inflate_tuple(ast_rootpath, root_env):
+def inflate_context_tuple(ast_rootpath, root_env):
   """Instantiate a Tuple from a TupleNode.
 
   Walking the AST tree upwards, evaluate from the root down again.
@@ -25,7 +25,7 @@ def inflate_tuple(ast_rootpath, root_env):
   # We only need to look at tuple members going down.
   inflated = ast_rootpath[0].eval(root_env)
   for node in ast_rootpath[1:]:
-    if is_tuple_member_node(node):
+    if is_tuple_node(node):
       inflated = inflated[node.name]
   return inflated
 
@@ -38,6 +38,10 @@ def is_tuple_member_node(x):
   return isinstance(x, ast.TupleMemberNode)
 
 
+def is_deref_node(x):
+  return isinstance(x, ast.Deref)
+
+
 # def enumerate_scope(ast_rootpath, root_env):
   # """Return a list of (name, node) pairs for the given tuple node.
 
@@ -48,6 +52,7 @@ def is_tuple_member_node(x):
   # env = tup.env(tup)
   # for key in env.keys():
     # yield key, env.get_node(key)
+
 
 def enumerate_scope(ast_rootpath, include_default_builtins=False):
   """Return a dict of { name => node } for the given tuple node.
@@ -67,3 +72,11 @@ def enumerate_scope(ast_rootpath, include_default_builtins=False):
       scope[k] = None
 
   return scope
+
+
+def find_completions(tree, source_query, root_env=gcl.default_env):
+  rootpath = tree.find_tokens(source_query)
+  tup = inflate_context_tuple(rootpath, root_env)
+  deref = path_until(rootpath, is_deref_node)[-1]
+  haystack = deref.haystack(tup.env(tup))
+  return haystack.keys()

@@ -115,6 +115,7 @@ class TestFinder(unittest.TestCase):
   def testFindObjectsAlsoInList(self):
     finder = query.TupleFinder(query.HasKeyCondition('type', search_lists=True))
     finder.find(self.obj)
+    import pprint; pprint.pprint(finder.unordered)
     self.assertEquals(5, len(set(finder.unordered)))
 
   def testFindInList(self):

@@ -206,7 +206,20 @@ class Inherit(framework.BindableThunk, AstNode):
 def inheritNodes(tokens):
   for t in tokens:
     assert isinstance(t, Var)
-  return [TupleMemberNode(t.location, t.name, no_schema, Inherit(t.location, t.name)) for t in list(tokens)]
+  return [TupleMemberNode(t.location, Identifier(t.location, t.name), no_schema, Inherit(t.location, t.name)) for t in list(tokens)]
+
+
+class Identifier(AstNode):
+  def __init__(self, location, name):
+    assert isinstance(name, basestring)
+    self.location = location
+    self.name = name
+
+  def __str__(self):
+    return self.name
+
+  def __repr__(self):
+    return self.name
 
 
 class Literal(framework.Thunk, AstNode):
@@ -227,9 +240,11 @@ class Literal(framework.Thunk, AstNode):
 
 class Var(framework.Thunk, AstNode):
   """Reference to another value."""
-  def __init__(self, location, name):
+  def __init__(self, location, identifier):
+    assert isinstance(identifier, Identifier)
     self.ident = framework.obj_ident()
-    self.name = name
+    self.identifier = identifier
+    self.name = identifier.name
     self.location = location
 
   def eval(self, env):
@@ -288,9 +303,10 @@ class TupleMemberNode(AstNode):
 
   They have a name, an expression value and an optional schema.
   """
-  def __init__(self, location, name, schema, value=None):
+  def __init__(self, location, identifier, schema, value=None):
     self.location = location
-    self.name = name
+    self.identifier = identifier
+    self.name = identifier.name
     self.value = value
     self.member_schema = schema
     self.comment = DocComment(location)
@@ -299,8 +315,7 @@ class TupleMemberNode(AstNode):
     # generate better error messages. Not doing it here makes the grammar a lot
     # messier.
     if isinstance(self.value, Void):
-      self.value.name = name
-
+      self.value.name = identifier.name
 
   def attach_comment(self, comment):
     self.comment = comment
@@ -417,7 +432,7 @@ class RuntimeTupleNode(TupleNode):
   dictionaries to Tuple objects at runtime, so we need to invent a tuple-like object.
   """
   def __init__(self, dct):
-    self.members = [TupleMemberNode(SourceLocation.empty(), key, schema=NoSchemaNode(), value=value) for key, value in dct.items()]
+    self.members = [TupleMemberNode(SourceLocation.empty(), Identifier(SourceLocation.empty(), key), schema=NoSchemaNode(), value=value) for key, value in dct.items()]
     self.member = {m.name: m for m in self.members}
 
 
@@ -573,23 +588,25 @@ class Deref(framework.Thunk, AstNode):
   def __init__(self, location, haystack, needle):
     self.location = location
     self.ident = framework.obj_ident()
-    self.haystack = haystack
+    self._haystack = haystack
     self.needle = needle
 
   def _children(self):
-    return [self.haystack, self.needle]
+    return [self._haystack, self.needle]
+
+  def haystack(self, env):
+    return framework.eval(self._haystack, env)
 
   def eval(self, env):
     try:
-      haystack = framework.eval(self.haystack, env)
-      return haystack[self.needle]
+      return self.haystack(env)[self.needle.name]
     except exceptions.EvaluationError as e:
       raise exceptions.EvaluationError(self.location.error_in_context('while evaluating \'%r\'' % self), e)
     except TypeError as e:
-      raise exceptions.EvaluationError(self.location.error_in_context('while getting %r from %r' % (self.needle, self.haystack)), e)
+      raise exceptions.EvaluationError(self.location.error_in_context('while getting %r from %r' % (self.needle, self._haystack)), e)
 
   def __repr__(self):
-    return '%s.%s' % (self.haystack, self.needle)
+    return '%s.%s' % (self._haystack, self.needle)
 
 
 def mkDerefs(location, *tokens):
@@ -917,7 +934,7 @@ def make_grammar(allow_errors):
     # - Must start with an alphascore
     # - May contain alphanumericscores and special characters such as : and -
     # - Must not end in a special character
-    identifier = quotedIdentifier | p.Regex(r'[a-zA-Z_]([a-zA-Z0-9_:-]*[a-zA-Z0-9_])?')
+    identifier = parseWithLocation(quotedIdentifier | p.Regex(r'[a-zA-Z_]([a-zA-Z0-9_:-]*[a-zA-Z0-9_])?'), Identifier)
 
     # Variable identifier (can't be any of the keywords, which may have lower matching priority)
     variable = ~p.Or([p.Keyword(k) for k in keywords]) + parseWithLocation(identifier.copy(), Var)

@@ -1,7 +1,10 @@
 import unittest
 
+import pyparsing
+
 import gcl
 from gcl import ast_util
+from gcl import ast
 
 class TestEnumerateScope(unittest.TestCase):
   def testSiblingsInScope(self):
@@ -147,3 +150,35 @@ def readAndQueryScope(source, line, col, **kwargs):
     tree = gcl.reads(source.strip(), filename='input.gcl', **kwargs)
     rootpath = tree.find_tokens(gcl.SourceQuery('input.gcl', line, col))
     return ast_util.enumerate_scope(rootpath)
+
+
+class TestDerefAutoComplete(unittest.TestCase):
+  def testDirectAutocomplete(self):
+    suggestions = readAndAutocomplete("""
+    bar = { y = 3 };
+    x = bar.|
+    """)
+    self.assertSetEqual(set(['y']), set(suggestions))
+
+  def testHalfAutocomplete(self):
+    suggestions = readAndAutocomplete("""
+    bar = { y = 3 };
+    x = bar.y|
+    """)
+    self.assertSetEqual(set(['y']), set(suggestions))
+
+
+def readAndAutocomplete(source):
+  source = source.strip()
+  source, line, col = find_cursor(source)
+  tree = gcl.reads(source, filename='input.gcl', allow_errors=True)
+  return ast_util.find_completions(tree, gcl.SourceQuery('input.gcl', line, col))
+
+
+def find_cursor(source):
+  """Return (source, line, col) based on the | character, stripping the source."""
+  i = source.index('|')
+  assert i != -1
+  l = pyparsing.lineno(i, source)
+  c = pyparsing.col(i, source)
+  return source.replace('|', ''), l, c
