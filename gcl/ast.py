@@ -941,7 +941,7 @@ def make_grammar(allow_errors):
 
     expression_value = sym('=') - swallow_errors(expression, ';}')
     void_value = parseWithLocation(p.FollowedBy(sym(';') | sym('}')), lambda loc: Void(loc, 'nonameyet'))
-    member_value = expression_value | void_value
+    member_value = swallow_errors(expression_value | void_value, ';}')
     named_member = parseWithLocation(identifier - optional_schema - member_value, TupleMemberNode)
     documented_member = parseWithLocation(parseWithLocation(p.ZeroOrMore(doc_comment), DocComment) + named_member, attach_doc_comment)
     tuple_member = swallow_errors(inherit | documented_member, ';}')
