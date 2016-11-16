@@ -42,18 +42,6 @@ def is_deref_node(x):
   return isinstance(x, ast.Deref)
 
 
-# def enumerate_scope(ast_rootpath, root_env):
-  # """Return a list of (name, node) pairs for the given tuple node.
-
-  # Enumerates all keys that are in scope in a given tupe. The node
-  # part of the tuple may be None, in case the binding is a built-in.
-  # """
-  # tup = inflate_tuple(path_until(ast_rootpath, is_tuple_node), root_env)
-  # env = tup.env(tup)
-  # for key in env.keys():
-    # yield key, env.get_node(key)
-
-
 def enumerate_scope(ast_rootpath, include_default_builtins=False):
   """Return a dict of { name => node } for the given tuple node.
 
@@ -74,9 +62,13 @@ def enumerate_scope(ast_rootpath, include_default_builtins=False):
   return scope
 
 
-def find_completions(tree, source_query, root_env=gcl.default_env):
-  rootpath = tree.find_tokens(source_query)
-  tup = inflate_context_tuple(rootpath, root_env)
-  deref = path_until(rootpath, is_deref_node)[-1]
+def find_completions(ast_rootpath, root_env=gcl.default_env):
+  if not ast_rootpath:
+    return []
+  tup = inflate_context_tuple(ast_rootpath, root_env)
+  path = path_until(ast_rootpath, is_deref_node)
+  if not path:
+    return []
+  deref = path[-1]
   haystack = deref.haystack(tup.env(tup))
   return haystack.keys()

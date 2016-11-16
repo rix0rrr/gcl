@@ -133,7 +133,13 @@ class SourceLocation(object):
   def contains(self, q):
     return (q.filename == self.filename
         and (q.line > self.lineno or (q.line == self.lineno and q.col >= self.col))
-        and (q.line < self.end_lineno or (q.line == self.end_lineno and q.col <= self.end_col)))
+        and (q.line < self.end_lineno or (q.line == self.end_lineno and q.col < self.end_col)))
+
+  def union(self, loc):
+    assert self.filename == loc.filename
+    ret = SourceLocation(self.string, self.start_offset, loc.end_offset)
+    ret.filename = self.filename
+    return ret
 
   def __repr__(self):
     return 'SourceLocation(%r, %r:%r, %r:%r)' % (self.filename, self.lineno, self.col, self.end_lineno, self.end_col)
@@ -609,10 +615,10 @@ class Deref(framework.Thunk, AstNode):
     return '%s.%s' % (self._haystack, self.needle)
 
 
-def mkDerefs(location, *tokens):
+def mkDerefs(_, *tokens):
   tokens = list(tokens)
   while len(tokens) > 1:
-    tokens[0:2] = [Deref(location, tokens[0], tokens[1])]
+    tokens[0:2] = [Deref(tokens[0].location.union(tokens[1].location), tokens[0], tokens[1])]
   return tokens[0]
 
 

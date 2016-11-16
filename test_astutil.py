@@ -167,12 +167,26 @@ class TestDerefAutoComplete(unittest.TestCase):
     """)
     self.assertSetEqual(set(['y']), set(suggestions))
 
+  def testDoubleDerefAutocomplete(self):
+    suggestions = readAndAutocomplete("""
+    bar = { y = { z = 1 } };
+    x = bar.y.|
+    """)
+    self.assertSetEqual(set(['z']), set(suggestions))
+
+  def testParsedLocationOfIncompleteDoubleDeref(self):
+    x = ast.lenient_grammar().expression.parseString('bar.y.')[0]
+    left = x._haystack
+    self.assertLess(left.location.end_offset, x.location.end_offset)
+
 
 def readAndAutocomplete(source):
   source = source.strip()
   source, line, col = find_cursor(source)
   tree = gcl.reads(source, filename='input.gcl', allow_errors=True)
-  return ast_util.find_completions(tree, gcl.SourceQuery('input.gcl', line, col))
+  q = gcl.SourceQuery('input.gcl', line, col - 1)
+  ast_rootpath = tree.find_tokens(q)
+  return ast_util.find_completions(ast_rootpath)
 
 
 def find_cursor(source):
