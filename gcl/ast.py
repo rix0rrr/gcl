@@ -363,6 +363,15 @@ class DocComment(object):
   def body_lines(self):
     return list(drop(1, itertools.dropwhile(nonempty, self.lines)))
 
+  def body(self):
+    return '\n'.join(self.body_lines())
+
+  def as_string(self):
+    title = self.title()
+    body = '\n'.join(self.body_lines())
+
+    return (title + '\n\n' + body) if body else title
+
   def __repr__(self):
     return '\n'.join('#. %s' % l for l in self.lines)
 

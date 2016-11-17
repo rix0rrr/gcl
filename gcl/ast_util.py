@@ -4,6 +4,8 @@ These utility functions are intended for GCL tools (in particular, gcls).
 """
 from __future__ import absolute_import
 
+import textwrap
+
 import gcl
 from . import framework
 from . import exceptions
@@ -52,7 +54,7 @@ def is_deref_node(x):
 
 
 def enumerate_scope(ast_rootpath, root_env=None, include_default_builtins=False):
-  """Return a dict of { name => node } for the given tuple node.
+  """Return a dict of { name => Completions } for the given tuple node.
 
   Enumerates all keys that are in scope in a given tuple. The node
   part of the tuple may be None, in case the binding is a built-in.
@@ -62,32 +64,52 @@ def enumerate_scope(ast_rootpath, root_env=None, include_default_builtins=False)
     if is_tuple_node(node):
       for member in node.members:
         if member.name not in scope:
-          scope[member.name] = member
+          scope[member.name] = Completion(member.name, False, member.comment.as_string(), member.location)
 
   if include_default_builtins:
     root_env = gcl.default_env
 
   if root_env:
     for k in root_env.keys():
-      scope[k] = None
+      if k not in scope:
+        v = root_env[k]
+        scope[k] = Completion(k, True, dedent(v.__doc__ or ''), None)
 
   return scope
 
 
+def dedent(docstring):
+  parts = textwrap.dedent(docstring or '').split('\n', 1)
+  if len(parts) == 1:
+    return parts[0]
+  return parts[0] + '\n\n' + strip_initial_empty_line(textwrap.dedent(parts[1]))
+
+
+def strip_initial_empty_line(x):
+  lines = x.split('\n')
+  if not lines[0].strip():
+    return '\n'.join(lines[1:])
+  return x
+
+
 def find_completions(ast_rootpath, root_env=gcl.default_env):
+  """Returns a dict of { name => Completions }."""
   tup = inflate_context_tuple(ast_rootpath, root_env)
   path = path_until(ast_rootpath, is_deref_node)
   if not path:
-    return []
+    return {}
   deref = path[-1]
   haystack = deref.haystack(tup.env(tup))
-  return haystack.keys()
+  # FIXME!!!!
+  doc = ''
+  location = None
+  return {n: Completion(n, False, doc, location) for n in haystack.keys()}
 
 
 def find_completions_at_cursor(ast_tree, filename, line, col, root_env=gcl.default_env):
   """Find completions at the cursor.
 
-  Return a dictionary of { name => builtin }
+  Return a dict of { name => Completion } objects.
   """
   q = gcl.SourceQuery(filename, line, col - 1)
   rootpath = ast_tree.find_tokens(q)
@@ -95,14 +117,9 @@ def find_completions_at_cursor(ast_tree, filename, line, col, root_env=gcl.defau
   if len(rootpath) >= 2 and is_tuple_member_node(rootpath[-2]) and is_identifier(rootpath[-1]):
     # The cursor is in identifier-position in a member declaration. In that case, we
     # don't return any completions.
-    return []
+    return {}
 
-  derefs = find_completions(rootpath)
-  if derefs:
-    return {name: False for name in derefs}
-
-  scope = enumerate_scope(rootpath, root_env=root_env)
-  return {name: node is None for name, node in scope.items()}
+  return find_completions(rootpath) or enumerate_scope(rootpath, root_env=root_env)
 
 
 def pair_iter(xs):
@@ -111,3 +128,12 @@ def pair_iter(xs):
     if last is not None:
       yield (last, x)
     last = x
+
+
+class Completion(object):
+  """Represents a potential completion."""
+  def __init__(self, name, builtin, doc, location):
+    self.name = name
+    self.builtin = builtin
+    self.doc = doc
+    self.location = location

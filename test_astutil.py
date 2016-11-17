@@ -13,7 +13,6 @@ class TestEnumerateScope(unittest.TestCase):
 
   def testScopeObjectHasLocation(self):
     scope = readAndQueryScope('henk = 5', 1, 1)
-    assert isinstance(scope['henk'], gcl.ast.TupleMemberNode)
     self.assertEquals(1, scope['henk'].location.lineno)
     self.assertEquals(1, scope['henk'].location.col)
 
@@ -195,11 +194,28 @@ class TestAutoComplete(unittest.TestCase):
     """)
     self.assertSetEqual(set([]), set(suggestions))
 
-def readAndAutocomplete(source):
+  def testAutoCompleteDocsScope(self):
+    suggestions = readAndAutocomplete("""
+    #. this is a foo
+    #.
+    #. there are many like it but this one is mine
+    foo = { x = 3; };
+    bar = f|
+    """)
+    self.assertEquals('this is a foo\n\nthere are many like it but this one is mine', suggestions['foo'].doc)
+
+  def testAutoCompleteDocsBuiltin(self):
+    suggestions = readAndAutocomplete("""
+    bar = compo|
+    """, root_env=gcl.default_env)
+    print suggestions
+    self.assertTrue('Compose all given tuples' in suggestions['compose_all'].doc)
+
+def readAndAutocomplete(source, root_env=None):
   source = source.strip()
   source, line, col = find_cursor(source)
   tree = gcl.reads(source, filename='input.gcl', allow_errors=True)
-  return ast_util.find_completions_at_cursor(tree, 'input.gcl', line, col, root_env=None)
+  return ast_util.find_completions_at_cursor(tree, 'input.gcl', line, col, root_env=root_env)
 
 
 def find_cursor(source):
