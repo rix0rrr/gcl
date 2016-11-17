@@ -331,7 +331,7 @@ class TupleMemberNode(AstNode):
     return '%s%s = %r' % (self.name, schema_repr, self.value)
 
   def _children(self):
-    return [self.value]
+    return [self.value, self.identifier]
 
 
 class DocComment(object):

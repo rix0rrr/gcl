@@ -152,7 +152,7 @@ def readAndQueryScope(source, line, col, **kwargs):
     return ast_util.enumerate_scope(rootpath)
 
 
-class TestDerefAutoComplete(unittest.TestCase):
+class TestAutoComplete(unittest.TestCase):
   def testDirectAutocomplete(self):
     suggestions = readAndAutocomplete("""
     bar = { y = 3 };
@@ -179,14 +179,27 @@ class TestDerefAutoComplete(unittest.TestCase):
     left = x._haystack
     self.assertLess(left.location.end_offset, x.location.end_offset)
 
+  def testNonDerefAutocomplete(self):
+    suggestions = readAndAutocomplete("""
+    bar = { y = { z = 1 } };
+    x = ba|
+    """)
+    self.assertSetEqual(set(['bar', 'x']), set(suggestions))
+
+  def testNoAutocompleteInIdentifierPosition(self):
+    suggestions = readAndAutocomplete("""
+    bar = {
+      henk = 3;
+      le|
+    };
+    """)
+    self.assertSetEqual(set([]), set(suggestions))
 
 def readAndAutocomplete(source):
   source = source.strip()
   source, line, col = find_cursor(source)
   tree = gcl.reads(source, filename='input.gcl', allow_errors=True)
-  q = gcl.SourceQuery('input.gcl', line, col - 1)
-  ast_rootpath = tree.find_tokens(q)
-  return ast_util.find_completions(ast_rootpath)
+  return ast_util.find_completions_at_cursor(tree, 'input.gcl', line, col, root_env=None)
 
 
 def find_cursor(source):
