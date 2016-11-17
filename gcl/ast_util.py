@@ -101,9 +101,12 @@ def find_completions(ast_rootpath, root_env=gcl.default_env):
   deref = path[-1]
   haystack = deref.haystack(tup.env(tup))
   # FIXME!!!!
-  doc = ''
-  location = None
-  return {n: Completion(n, False, doc, location) for n in haystack.keys()}
+  return {n: get_completion(haystack, n) for n in haystack.keys()}
+
+
+def get_completion(haystack, name):
+  thunk = haystack.get_member_node(name)
+  return Completion(name, False, thunk.comment.as_string(), thunk.location)
 
 
 def find_completions_at_cursor(ast_tree, filename, line, col, root_env=gcl.default_env):

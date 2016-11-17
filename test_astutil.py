@@ -211,6 +211,16 @@ class TestAutoComplete(unittest.TestCase):
     print suggestions
     self.assertTrue('Compose all given tuples' in suggestions['compose_all'].doc)
 
+  def testAutoCompleteDocsDeref(self):
+    suggestions = readAndAutocomplete("""
+    foo = {
+      #. yes
+      really;
+    };
+    bar = foo.reall|
+    """, root_env=gcl.default_env)
+    self.assertEquals('yes', suggestions['really'].doc)
+
 def readAndAutocomplete(source, root_env=None):
   source = source.strip()
   source, line, col = find_cursor(source)
