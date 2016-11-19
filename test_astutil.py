@@ -5,6 +5,7 @@ import pyparsing
 import gcl
 from gcl import ast_util
 from gcl import ast
+from gcl import framework
 
 class TestEnumerateScope(unittest.TestCase):
   def testSiblingsInScope(self):
@@ -220,6 +221,28 @@ class TestAutoComplete(unittest.TestCase):
     bar = foo.reall|
     """, root_env=gcl.default_env)
     self.assertEquals('yes', suggestions['really'].doc)
+
+  def testCompletePastIncludesWhenFileChangesAndCachingDisabled(self):
+    includable = ["before = 1;"]
+    def load_from_var(base, rel, env=None):
+      return gcl.loads(includable[0], env=env)
+
+    source = """
+    inc = include 'inc.gcl';
+    bar = inc.|
+    """.strip()
+    source, line, col = find_cursor(source)
+    tree = gcl.reads(source, filename='input.gcl', allow_errors=True, loader=load_from_var)
+
+    with framework.DisableCaching():
+      completions = ast_util.find_completions_at_cursor(tree, 'input.gcl', line, col)
+    self.assertTrue('before' in completions)
+
+    includable[0] = "after = 2;"
+
+    with framework.DisableCaching():
+      completions = ast_util.find_completions_at_cursor(tree, 'input.gcl', line, col)
+    self.assertTrue('after' in completions)
 
 def readAndAutocomplete(source, root_env=None):
   source = source.strip()

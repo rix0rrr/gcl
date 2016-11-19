@@ -307,7 +307,7 @@ class OnDiskFiles(object):
 
     target_path = None
     for search in search_path:
-      if path.isfile(path.join(search, rel_path)):
+      if self.exists(path.join(search, rel_path)):
         target_path = path.normpath(path.join(search, rel_path))
         break
 
@@ -316,6 +316,9 @@ class OnDiskFiles(object):
                             (rel_path, ':'.join(search_path)))
 
     return target_path, path.abspath(target_path)
+
+  def exists(self, filename):
+    return path.isfile(filename)
 
   def load(self, path):
     with open(path, 'r') as f:

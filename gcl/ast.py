@@ -159,7 +159,7 @@ class AstNode(object):
     return found_me + list(itertools.chain(*cs))
 
   def _found_by(self, q):
-    raise exceptions.EvaluationError('Not implemented')
+    raise exceptions.EvaluationError('Not implemented on %s' % self.__class__.__name__)
 
   def _children(self):
     return []
@@ -712,6 +712,7 @@ class Void(framework.Thunk, AstNode):
 
 class Include(framework.Thunk, AstNode):
   def __init__(self, location, file_ref):
+    self.location = location
     self.ident = framework.obj_ident()
     self.file_ref = file_ref
     self.current_file = the_context.filename
@@ -726,7 +727,9 @@ class Include(framework.Thunk, AstNode):
       raise exceptions.EvaluationError('Included argument (%r) must be a string, got %r' %
                             (self.file_ref, file_ref))
 
-    return self.loader(self.current_file, file_ref, env=env.root)
+    loaded = self.loader(self.current_file, file_ref, env=env.root)
+    assert not isinstance(loaded, framework.Thunk)
+    return loaded
 
   def __repr__(self):
     return 'include(%r)' % self.file_ref

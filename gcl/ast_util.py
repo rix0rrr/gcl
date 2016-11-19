@@ -11,7 +11,6 @@ from . import framework
 from . import exceptions
 from . import ast
 
-
 def path_until(rootpath, pred):
   for i in range(len(rootpath), 0, -1):
     if pred(rootpath[i - 1]):
@@ -92,7 +91,7 @@ def strip_initial_empty_line(x):
   return x
 
 
-def find_completions(ast_rootpath, root_env=gcl.default_env):
+def find_deref_completions(ast_rootpath, root_env=gcl.default_env):
   """Returns a dict of { name => Completions }."""
   tup = inflate_context_tuple(ast_rootpath, root_env)
   path = path_until(ast_rootpath, is_deref_node)
@@ -100,7 +99,6 @@ def find_completions(ast_rootpath, root_env=gcl.default_env):
     return {}
   deref = path[-1]
   haystack = deref.haystack(tup.env(tup))
-  # FIXME!!!!
   return {n: get_completion(haystack, n) for n in haystack.keys()}
 
 
@@ -122,7 +120,7 @@ def find_completions_at_cursor(ast_tree, filename, line, col, root_env=gcl.defau
     # don't return any completions.
     return {}
 
-  return find_completions(rootpath) or enumerate_scope(rootpath, root_env=root_env)
+  return find_deref_completions(rootpath) or enumerate_scope(rootpath, root_env=root_env)
 
 
 def pair_iter(xs):

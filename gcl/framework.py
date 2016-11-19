@@ -205,6 +205,11 @@ class Cache(object):
     return self._cache[key]
 
 
+class NoCache(object):
+  def get(self, key, getter, *args, **kwargs):
+    return getter(*args, **kwargs)
+
+
 class FunctionMarker(object):
   """Base class for function markers"""
   def __init__(self, fn):
@@ -222,6 +227,17 @@ class EnvironmentFunction(FunctionMarker):
 class LazyFunction(FunctionMarker):
   """Marker class for functions that take thunks."""
   pass
+
+
+class DisableCaching(object):
+  def __enter__(self):
+    global eval_cache
+    self._old_cache = eval_cache
+    eval_cache = NoCache()
+
+  def __exit__(self, e_type, exc, tb):
+    global eval_cache
+    eval_cache = self._old_cache
 
 
 eval_cache = Cache()
