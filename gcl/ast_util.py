@@ -52,6 +52,10 @@ def is_deref_node(x):
   return isinstance(x, ast.Deref)
 
 
+def is_thunk(x):
+  return isinstance(x, framework.Thunk)
+
+
 def enumerate_scope(ast_rootpath, root_env=None, include_default_builtins=False):
   """Return a dict of { name => Completions } for the given tuple node.
 
@@ -121,6 +125,27 @@ def find_completions_at_cursor(ast_tree, filename, line, col, root_env=gcl.defau
     return {}
 
   return find_deref_completions(rootpath) or enumerate_scope(rootpath, root_env=root_env)
+
+
+def find_value_at_cursor(ast_tree, filename, line, col, root_env=gcl.default_env):
+  """Find the value of the object under the cursor."""
+  q = gcl.SourceQuery(filename, line, col)
+  rootpath = ast_tree.find_tokens(q)
+  rootpath = path_until(rootpath, is_thunk)
+
+  if len(rootpath) <= 1:
+    # Just the file tuple itself
+    return ''
+
+  import sys
+  sys.stderr.write('%r\n' % rootpath)
+  sys.stderr.write('%r\n' % map(type, rootpath))
+
+  tup = inflate_context_tuple(rootpath, root_env)
+  try:
+    return str(rootpath[-1].eval(tup.env(tup)))
+  except gcl.EvaluationError as e:
+    return str(e)
 
 
 def pair_iter(xs):

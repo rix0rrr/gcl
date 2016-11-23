@@ -756,7 +756,7 @@ class TestErrorMessages(unittest.TestCase):
   def testNameOfVoidVariableIsMentioned(self):
     x = parse('{ the_var; }')
     try:
-      print x['the_var']
+      print(x['the_var'])
       self.fail('Should have thrown')
     except Exception as e:
       print(str(e))
@@ -771,7 +771,6 @@ class TestErrorMessages(unittest.TestCase):
       """.strip(), implicit_tuple=True)
       self.fail('Should have thrown')
     except gcl.ParseError as e:
-      traceback.print_exc()
       print(e.sourcelocation.line)
       self.assertTrue('woop' in e.sourcelocation.line)
 

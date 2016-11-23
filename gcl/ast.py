@@ -217,7 +217,7 @@ def inheritNodes(tokens):
 
 class Identifier(AstNode):
   def __init__(self, location, name):
-    assert isinstance(name, basestring)
+    assert framework.is_str(name)
     self.location = location
     self.name = name
 
