@@ -9,11 +9,11 @@ from gcl import framework
 
 class TestEnumerateScope(unittest.TestCase):
   def testSiblingsInScope(self):
-    scope = readAndQueryScope('henk = 5', 1, 1)
+    scope = readAndQueryScope('|henk = 5')
     assert 'henk' in scope
 
   def testScopeObjectHasLocation(self):
-    scope = readAndQueryScope('henk = 5', 1, 1)
+    scope = readAndQueryScope('|henk = 5')
     self.assertEquals(1, scope['henk'].location.lineno)
     self.assertEquals(1, scope['henk'].location.col)
 
@@ -21,37 +21,37 @@ class TestEnumerateScope(unittest.TestCase):
     source = """
     henk = 5;
     other = {
-      foo = 1;
+      f|oo = 1;
     }
     """
-    scope = readAndQueryScope(source, 3, 8) # foo
+    scope = readAndQueryScope(source)
     assert 'henk' in scope
     assert 'foo' in scope
 
   def testCompositeNeg(self):
     source = """
     A = { henk = 5 };
-    B = A { foo = 1 };
+    B = A { fo|o = 1 };
     """
-    scope = readAndQueryScope(source, 2, 14)  # foo
+    scope = readAndQueryScope(source)  # foo
     assert 'henk' not in scope
     assert 'foo' in scope
 
   def testCompositeMixin(self):
     source = """
     A = { henk = 5 };
-    B = A { henk; foo = 1 };
+    B = A { henk; foo| = 1 };
     """
-    scope = readAndQueryScope(source, 2, 14)  # foo
+    scope = readAndQueryScope(source)  # foo
     assert 'henk' in scope
     assert 'foo' in scope
 
   def testTupleWithInherits(self):
     source = """
     henk = 5;
-    B = { inherit henk }
+    B = { inherit henk| }
     """
-    scope = readAndQueryScope(source, 2, 14)  # inner tuple
+    scope = readAndQueryScope(source)  # inner tuple
     assert 'henk' in scope
     assert scope['henk'].location.lineno == 2  # Find the right henk
 
@@ -68,10 +68,10 @@ class TestBrokenParseRecovery(unittest.TestCase):
     outer = 1;
     tup = {
       pre_inner = 2;
-      broken = + + ax 89sdf/b8;
+      brok|en = + + ax 89sdf/b8;
       post_inner = 3;
     }
-    """, 4, 10, allow_errors=True)
+    """, allow_errors=True)
     self.assertSetEqual(set(['outer', 'tup', 'pre_inner', 'broken', 'post_inner']), set(scope.keys()))
 
   def testUnparseableTupleLineMissingSemicolon(self):
@@ -79,10 +79,10 @@ class TestBrokenParseRecovery(unittest.TestCase):
     outer = 1;
     tup = {
       pre_inner = 2;
-      broken = + + ax 89sdf/b8
+      brok|en = + + ax 89sdf/b8
       post_inner = 3;
     }
-    """, 4, 10, allow_errors=True)
+    """, allow_errors=True)
     self.assertSetEqual(set(['outer', 'tup', 'pre_inner', 'broken']), set(scope.keys()))
 
   def testUnparseableTupleLineCompleteGarbage(self):
@@ -90,10 +90,10 @@ class TestBrokenParseRecovery(unittest.TestCase):
     outer = 1;
     tup = {
       pre_inner = 2;
-      + + ax 89sdf/b8;
+      + +| ax 89sdf/b8;
       post_inner = 3;
     }
-    """, 4, 10, allow_errors=True)
+    """, allow_errors=True)
     self.assertSetEqual(set(['outer', 'tup', 'pre_inner', 'post_inner']), set(scope.keys()))
 
   def testMissingEqualsRecover(self):
@@ -101,24 +101,24 @@ class TestBrokenParseRecovery(unittest.TestCase):
       foo = 3;
 
       bar = {
-          bippety bop;
+          bip|pety bop;
       };
-      """, 4, 11, allow_errors=True)
+      """, allow_errors=True)
     self.assertSetEqual(set(['foo', 'bar', 'bippety']), set(scope.keys()))
 
   def testTrailingWordRecover(self):
     scope = readAndQueryScope("""
       foo = 3;
-      f
-      """, 2, 1, allow_errors=True)
+      |f
+      """, allow_errors=True)
     self.assertSetEqual(set(['foo', 'f']), set(scope.keys()))
 
   def testMissingClosingBraceRecover(self):
     scope = readAndQueryScope("""
     outer = 1;
     tup = {
-      inner = 2;
-    """, 3, 10, allow_errors=True)
+      inn|er = 2;
+    """, allow_errors=True)
     self.assertSetEqual(set(['outer', 'inner', 'tup']), set(scope.keys()))
 
   def testMissingClosingBraceRecoverDouble(self):
@@ -126,30 +126,37 @@ class TestBrokenParseRecovery(unittest.TestCase):
     outer = 1;
     tup = {
       tap = {
-        inner = 2;
+        inn|er = 2;
     };
-    """, 4, 10, allow_errors=True)
+    """, allow_errors=True)
     self.assertSetEqual(set(['outer', 'inner', 'tup', 'tap']), set(scope.keys()))
 
   def testRecoverDoubleDefinition(self):
     scope = readAndQueryScope("""
     foo = 1;
-    foo = 2;
-    """, 2, 1, allow_errors=True)
+    |foo = 2;
+    """, allow_errors=True)
     self.assertSetEqual(set(['foo']), set(scope.keys()))
 
   def testRecoverIncompleteDeref(self):
     scope = readAndQueryScope("""
-    foo = bar.
-    """, 1, 1, allow_errors=True)
+    |foo = bar.
+    """, allow_errors=True)
     self.assertSetEqual(set(['foo']), set(scope.keys()))
 
+  def testRecoverDoubleEquals(self):
+    suggestions = readAndQueryScope("""
+    x = |
+    y = 3;
+    """, allow_errors=True)
+    self.assertSetEqual(set(['x', 'y']), set(suggestions))
 
+  def testRecoverBinOp(self):
+    suggestions = readAndQueryScope("""
+    y = 1 + 2 + |;
+    """, allow_errors=True)
+    self.assertSetEqual(set(['y']), set(suggestions))
 
-def readAndQueryScope(source, line, col, **kwargs):
-    tree = gcl.reads(source.strip(), filename='input.gcl', **kwargs)
-    rootpath = tree.find_tokens(gcl.SourceQuery('input.gcl', line, col))
-    return ast_util.enumerate_scope(rootpath)
 
 
 class TestAutoComplete(unittest.TestCase):
@@ -222,6 +229,19 @@ class TestAutoComplete(unittest.TestCase):
     """, root_env=gcl.default_env)
     self.assertEquals('yes', suggestions['really'].doc)
 
+  def testCompleteDoubleEquals(self):
+    suggestions = readAndAutocomplete("""
+    x = |
+    y = 3;
+    """)
+    self.assertSetEqual(set(['x', 'y']), set(suggestions))
+
+  def testCompleteBinOp(self):
+    suggestions = readAndAutocomplete("""
+    y = 1 + 2 + |;
+    """)
+    self.assertSetEqual(set(['y']), set(suggestions))
+
   def testCompletePastIncludesWhenFileChangesAndCachingDisabled(self):
     includable = ["before = 1;"]
     def load_from_var(base, rel, env=None):
@@ -244,8 +264,15 @@ class TestAutoComplete(unittest.TestCase):
       completions = ast_util.find_completions_at_cursor(tree, 'input.gcl', line, col)
     self.assertTrue('after' in completions)
 
+
+def readAndQueryScope(source, **kwargs):
+    source, line, col = find_cursor(source)
+    tree = gcl.reads(source, filename='input.gcl', **kwargs)
+    rootpath = tree.find_tokens(gcl.SourceQuery('input.gcl', line, col))
+    return ast_util.enumerate_scope(rootpath)
+
+
 def readAndAutocomplete(source, root_env=None):
-  source = source.strip()
   source, line, col = find_cursor(source)
   tree = gcl.reads(source, filename='input.gcl', allow_errors=True)
   return ast_util.find_completions_at_cursor(tree, 'input.gcl', line, col, root_env=root_env)
@@ -253,6 +280,7 @@ def readAndAutocomplete(source, root_env=None):
 
 def find_cursor(source):
   """Return (source, line, col) based on the | character, stripping the source."""
+  source = source.strip()
   i = source.index('|')
   assert i != -1
   l = pyparsing.lineno(i, source)

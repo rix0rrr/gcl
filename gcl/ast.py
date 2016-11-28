@@ -929,7 +929,7 @@ def make_grammar(allow_errors):
   if allow_errors in GRAMMAR_CACHE:
     return GRAMMAR_CACHE[allow_errors]
 
-  def swallow_errors(rule, synchronizing_tokens):
+  def swallow_errors(rule, synchronizing_tokens=';}'):
     """Extend the production rule by potentially eating errors.
 
     This does not return a p.NoMatch() because that messes up the error messages.
@@ -972,15 +972,15 @@ def make_grammar(allow_errors):
     inherit = (kw('inherit') - p.ZeroOrMore(variable)).setParseAction(inheritNodes)
     schema_spec = parseWithLocation(p.Optional(p.Keyword('private').setParseAction(lambda: True), default=False)
                   - p.Optional(p.Keyword('required').setParseAction(lambda: True), default=False)
-                  - p.Optional(swallow_errors(expression, ';}'), default=any_schema_expr), MemberSchemaNode)
+                  - p.Optional(swallow_errors(expression), default=any_schema_expr), MemberSchemaNode)
     optional_schema = p.Optional(p.Suppress(':') - swallow_errors(schema_spec, '=;}'), default=no_schema)
 
-    expression_value = sym('=') - swallow_errors(expression, ';}')
+    expression_value = sym('=') - swallow_errors(expression)
     void_value = parseWithLocation(p.FollowedBy(sym(';') | sym('}')), lambda loc: Void(loc, 'nonameyet'))
-    member_value = swallow_errors(expression_value | void_value, ';}')
+    member_value = swallow_errors(expression_value | void_value)
     named_member = parseWithLocation(identifier - optional_schema - member_value, TupleMemberNode)
     documented_member = parseWithLocation(parseWithLocation(p.ZeroOrMore(doc_comment), DocComment) + named_member, attach_doc_comment)
-    tuple_member = swallow_errors(inherit | documented_member, ';}')
+    tuple_member = swallow_errors(inherit | documented_member)
 
     ErrorAwareTupleNode = functools.partial(TupleNode, allow_errors)
     tuple_members = parseWithLocation(listMembers(';', tuple_member), ErrorAwareTupleNode)
@@ -1029,7 +1029,7 @@ def make_grammar(allow_errors):
     applic1 = parseWithLocation(atom - p.ZeroOrMore(arg_list), mkApplications)
 
     # Dereferencing of an expression (obj.bar)
-    deref << parseWithLocation(applic1 - p.ZeroOrMore(p.Suppress('.') - swallow_errors(identifier, ';}')), mkDerefs)
+    deref << parseWithLocation(applic1 - p.ZeroOrMore(p.Suppress('.') - swallow_errors(identifier)), mkDerefs)
 
     # All binary operators at various precedence levels go here:
     # This piece of code does the moral equivalent of:
