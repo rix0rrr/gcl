@@ -7,6 +7,7 @@ import functools
 import string
 import sys
 import textwrap
+import logging
 
 import pyparsing as p
 
@@ -55,6 +56,7 @@ def parseWithLocation(expr, action):
   startMarker = p.Empty().setParseAction(lambda s, loc, t: loc)
   endMarker = startMarker.copy()
   complete = startMarker + expr + endMarker
+  startMarker.setName(str(expr))
 
   def parseAction(s, loc, t):
     start, inner_tokens, end = t[0], t[1:-1], t[-1]
@@ -554,7 +556,7 @@ def mkUnOp(tokens):
   return UnOp(tokens[0], tokens[1])
 
 
-class BinOp(framework.Thunk):
+class BinOp(framework.Thunk, AstNode):
   def __init__(self, left, op, right):
     self.ident = framework.obj_ident()
     self.left = left
@@ -687,7 +689,7 @@ class UnparseableNode(framework.Thunk, AstNode):
     raise exceptions.EvaluationError(self.location.error_in_context('Unparseable expression'))
 
   def __repr__(self):
-    return self.location.original_string()
+    return '<!' + self.location.original_string() + '!>'
 
 
 class Void(framework.Thunk, AstNode):
@@ -887,7 +889,7 @@ def kw(kw):
 
 
 def listMembers(sep, expr):
-  return p.Optional(p.delimitedList(expr, sep) -
+  return p.Optional(p.delimitedList(expr, sep) +
                     p.Optional(sep).suppress())
 
 
@@ -897,7 +899,7 @@ def bracketedList(l, r, sep, expr, allow_missing_close=False):
   Empty list is possible, as is a trailing separator.
   """
   closer = sym(r) if not allow_missing_close else p.Optional(sym(r))
-  return (sym(l) - listMembers(sep, expr) - closer)
+  return (sym(l) + listMembers(sep, expr) + closer)
 
 
 def unquote(s):
@@ -923,91 +925,108 @@ UNQUOTE_MAP = {
     }
 
 
+def pattern(name, pattern):
+  """Function to put a name on a pyparsing pattern.
+
+  Just for ease of debugging/tracing parse errors.
+  """
+  pattern.setName(name)
+  pattern.setDebugActions(debugStart, debugSuccess, debugException)
+  return pattern
+
+
 GRAMMAR_CACHE = {}
 def make_grammar(allow_errors):
   """Make the part of the grammar that depends on whether we swallow errors or not."""
   if allow_errors in GRAMMAR_CACHE:
     return GRAMMAR_CACHE[allow_errors]
 
+  def swallow2(synchronizing_tokens=';}'):
+    if allow_errors:
+      return pattern('catch_errors2', parseWithLocation(p.Suppress(p.Optional(p.Regex('[^%s]*' % synchronizing_tokens))), UnparseableNode))
+    return p.Empty()
+
+
   def swallow_errors(rule, synchronizing_tokens=';}'):
     """Extend the production rule by potentially eating errors.
 
     This does not return a p.NoMatch() because that messes up the error messages.
     """
+    ret = rule
     if allow_errors:
-      rule = rule | parseWithLocation(p.Suppress(p.Regex('[^%s]*' % synchronizing_tokens)), UnparseableNode)
-    return rule
+      ret = rule | pattern('catch_errors', parseWithLocation(p.Suppress(p.Regex('[^%s]*' % synchronizing_tokens)), UnparseableNode))
+    return ret
 
   class Grammar:
     keywords = ['and', 'or', 'not', 'if', 'then', 'else', 'include', 'inherit', 'null', 'true', 'false',
         'for', 'in']
 
-    expression = p.Forward()
+    expression = pattern('expression', p.Forward())
 
     comment = p.Regex('#[^.]') + p.restOfLine
-    doc_comment = (sym('#.') + p.restOfLine)
+    doc_comment = pattern('doc_comment', (sym('#.') + p.restOfLine))
 
-    quotedIdentifier = p.QuotedString('`', multiline=False)
+    quotedIdentifier = pattern('quotedIdentifier', p.QuotedString('`', multiline=False))
 
     # - Must start with an alphascore
     # - May contain alphanumericscores and special characters such as : and -
     # - Must not end in a special character
-    identifier = parseWithLocation(quotedIdentifier | p.Regex(r'[a-zA-Z_]([a-zA-Z0-9_:-]*[a-zA-Z0-9_])?'), Identifier)
+    identifier = pattern('identifier', parseWithLocation(quotedIdentifier | p.Regex(r'[a-zA-Z_]([a-zA-Z0-9_:-]*[a-zA-Z0-9_])?'), Identifier))
 
     # Variable identifier (can't be any of the keywords, which may have lower matching priority)
-    variable = ~p.Or([p.Keyword(k) for k in keywords]) + parseWithLocation(identifier.copy(), Var)
+    variable = pattern('variable', ~p.Or([p.Keyword(k) for k in keywords]) + pattern('identifier', parseWithLocation(identifier.copy(), Var)))
 
     # Contants
-    integer = parseWithLocation(p.Word(p.nums), convertAndMake(int, Literal))
-    floating = parseWithLocation(p.Regex(r'\d*\.\d+'), convertAndMake(float, Literal))
-    dq_string = parseWithLocation(p.QuotedString('"', escChar='\\', unquoteResults=False, multiline=True), convertAndMake(unquote, Literal))
-    sq_string = parseWithLocation(p.QuotedString("'", escChar='\\', unquoteResults=False, multiline=True), convertAndMake(unquote, Literal))
-    boolean = parseWithLocation(p.Keyword('true') | p.Keyword('false'), convertAndMake(mkBool, Literal))
-    null = parseWithLocation(p.Keyword('null'), Null)
+    integer = pattern('integer', parseWithLocation(p.Word(p.nums), convertAndMake(int, Literal)))
+    floating = pattern('floating', parseWithLocation(p.Regex(r'\d*\.\d+'), convertAndMake(float, Literal)))
+    dq_string = pattern('dq_string', parseWithLocation(p.QuotedString('"', escChar='\\', unquoteResults=False, multiline=True), convertAndMake(unquote, Literal)))
+    sq_string = pattern('sq_string', parseWithLocation(p.QuotedString("'", escChar='\\', unquoteResults=False, multiline=True), convertAndMake(unquote, Literal)))
+    boolean = pattern('boolean', parseWithLocation(p.Keyword('true') | p.Keyword('false'), convertAndMake(mkBool, Literal)))
+    null = pattern('null', parseWithLocation(p.Keyword('null'), Null))
 
     # List
-    list_ = parseWithLocation(bracketedList('[', ']', ',', expression), List)
+    list_ = pattern('list', parseWithLocation(bracketedList('[', ']', ',', expression), List))
 
     # Tuple
-    inherit = (kw('inherit') - p.ZeroOrMore(variable)).setParseAction(inheritNodes)
-    schema_spec = parseWithLocation(p.Optional(p.Keyword('private').setParseAction(lambda: True), default=False)
-                  - p.Optional(p.Keyword('required').setParseAction(lambda: True), default=False)
-                  - p.Optional(swallow_errors(expression), default=any_schema_expr), MemberSchemaNode)
-    optional_schema = p.Optional(p.Suppress(':') - swallow_errors(schema_spec, '=;}'), default=no_schema)
+    inherit = pattern('inherit', (kw('inherit') + p.ZeroOrMore(variable)).setParseAction(inheritNodes))
+    schema_spec = pattern('schema_spec', parseWithLocation(p.Optional(p.Keyword('private').setParseAction(lambda: True), default=False)
+                  + p.Optional(p.Keyword('required').setParseAction(lambda: True), default=False)
+                  + p.Optional(expression, default=any_schema_expr), MemberSchemaNode))
+    optional_schema = pattern('optional_schema', p.Optional(p.Suppress(':') + schema_spec, default=no_schema))
 
-    expression_value = sym('=') - swallow_errors(expression)
-    void_value = parseWithLocation(p.FollowedBy(sym(';') | sym('}')), lambda loc: Void(loc, 'nonameyet'))
-    member_value = swallow_errors(expression_value | void_value)
-    named_member = parseWithLocation(identifier - optional_schema - member_value, TupleMemberNode)
-    documented_member = parseWithLocation(parseWithLocation(p.ZeroOrMore(doc_comment), DocComment) + named_member, attach_doc_comment)
-    tuple_member = swallow_errors(inherit | documented_member)
+    expression_value = pattern('expression_value', sym('=') - swallow_errors(expression))
+    void_value = pattern('void_value', parseWithLocation(p.FollowedBy(sym(';') | sym('}')), lambda loc: Void(loc, 'nonameyet')))
+    member_value = pattern('member_value', swallow_errors(expression_value | void_value))
+    named_member = pattern('named_member', parseWithLocation(identifier + optional_schema + member_value, TupleMemberNode))
+    documented_member = pattern('documented_member', parseWithLocation(parseWithLocation(p.ZeroOrMore(doc_comment), DocComment) + named_member, attach_doc_comment))
+    tuple_member = pattern('tuple_member', swallow_errors(inherit | documented_member) - swallow2())
 
     ErrorAwareTupleNode = functools.partial(TupleNode, allow_errors)
-    tuple_members = parseWithLocation(listMembers(';', tuple_member), ErrorAwareTupleNode)
-    tuple = parseWithLocation(bracketedList('{', '}', ';', tuple_member, allow_missing_close=allow_errors), ErrorAwareTupleNode)
+    tuple_members = pattern('tuple_members', parseWithLocation(listMembers(';', tuple_member), ErrorAwareTupleNode))
+    tuple = pattern('tuple', parseWithLocation(bracketedList('{', '}', ';', tuple_member, allow_missing_close=allow_errors), ErrorAwareTupleNode))
 
     # Argument list will live by itself as a atom. Actually, it's a tuple, but we
     # don't call it that because we use that term for something else already :)
-    arg_list = bracketedList('(', ')', ',', expression).setParseAction(ArgList)
+    arg_list = pattern('arg_list', bracketedList('(', ')', ',', expression).setParseAction(ArgList))
 
-    parenthesized_expr = (sym('(') - expression - ')').setParseAction(head)
+    parenthesized_expr = pattern('parenthesized_expr', (sym('(') + expression + ')').setParseAction(head))
 
-    unary_op = (p.oneOf(' '.join(functions.unary_operators.keys())) - expression).setParseAction(mkUnOp)
+    unary_op = pattern('unary_op', (p.oneOf(' '.join(functions.unary_operators.keys())) + expression).setParseAction(mkUnOp))
 
-    if_then_else = parseWithLocation(kw('if') + expression +
-                    kw('then') - expression -
-                    kw('else') - expression, Condition)
+    if_then_else = pattern('if_then_else', parseWithLocation(kw('if') + expression +
+                    kw('then') + expression +
+                    kw('else') + expression, Condition))
 
-    list_comprehension = parseWithLocation(sym('[') + expression + kw('for') - variable - kw('in') -
-        expression - p.Optional(kw('if') - expression) - sym(']'), ListComprehension)
+    list_comprehension = pattern('list_comprehension', parseWithLocation(sym('[') + expression + kw('for') + variable + kw('in') +
+        expression + p.Optional(kw('if') + expression) + sym(']'), ListComprehension))
 
 
     # We don't allow space-application here
     # Now our grammar is becoming very dirty and hackish
-    deref = p.Forward()
-    include = parseWithLocation(kw('include') - deref, Include)
+    deref = pattern('deref', p.Forward())
+    include = pattern('include', parseWithLocation(kw('include') + deref, Include))
 
-    atom = (tuple
+    atom = pattern('atom', (tuple
             | variable
             | dq_string
             | sq_string
@@ -1021,15 +1040,15 @@ def make_grammar(allow_errors):
             | include
             | floating
             | integer
-            )
+            ))
 
     # We have two different forms of function application, so they can have 2
     # different precedences. This one: fn(args), which binds stronger than
     # dereferencing (fn(args).attr == (fn(args)).attr)
-    applic1 = parseWithLocation(atom - p.ZeroOrMore(arg_list), mkApplications)
+    applic1 = pattern('applic1', parseWithLocation(atom + p.ZeroOrMore(arg_list), mkApplications))
 
     # Dereferencing of an expression (obj.bar)
-    deref << parseWithLocation(applic1 - p.ZeroOrMore(p.Suppress('.') - swallow_errors(identifier)), mkDerefs)
+    deref << parseWithLocation(applic1 + p.ZeroOrMore(p.Suppress('.') + swallow_errors(identifier)), mkDerefs)
 
     # All binary operators at various precedence levels go here:
     # This piece of code does the moral equivalent of:
@@ -1041,24 +1060,51 @@ def make_grammar(allow_errors):
     term = deref
     for op_level in functions.binary_operators_before_juxtaposition:
       operator_syms = ' '.join(op_level.keys())
-      term = (term - p.ZeroOrMore(p.oneOf(operator_syms) - term)).setParseAction(mkBinOps)
+      term = (term + p.ZeroOrMore(p.oneOf(operator_syms) + term)).setParseAction(mkBinOps)
 
     # Juxtaposition function application (fn arg), must be 1-arg every time
-    applic2 = parseWithLocation(term - p.ZeroOrMore(term), mkApplications)
+    applic2 = pattern('applic2', parseWithLocation(term + p.ZeroOrMore(term), mkApplications))
 
     term = applic2
     for op_level in functions.binary_operators_after_juxtaposition:
       operator_syms = ' '.join(op_level.keys())
-      term = (term - p.ZeroOrMore(p.oneOf(operator_syms) - term)).setParseAction(mkBinOps)
+      term = (term + p.ZeroOrMore(p.oneOf(operator_syms) + term)).setParseAction(mkBinOps)
 
     expression << term
 
     # Two entry points: start at an arbitrary expression, or expect the top-level
     # scope to be a tuple.
-    start = expression.ignore(comment)
+    start = pattern('start', expression.ignore(comment))
     start_tuple = tuple_members.ignore(comment)
   GRAMMAR_CACHE[allow_errors] = Grammar
   return Grammar
+
+
+def snippet(s, loc):
+    return s[loc:loc+5] + '...'
+
+
+logger = logging.getLogger(__name__)
+level = 0
+
+
+def debugStart( instring, loc, expr ):
+    global level
+    prefix = '  ' * level
+    logger.debug('%s>>> %r trying %s', prefix, snippet(instring, loc), expr)
+    level += 1
+
+def debugSuccess( instring, startloc, endloc, expr, toks ):
+    global level
+    level -= 1
+    prefix = '  ' * level
+    logger.debug('%s<<< %r success matching %s => %r', prefix, snippet(instring, startloc), expr, toks)
+
+def debugException( instring, loc, expr, exc ):
+    global level
+    level -= 1
+    prefix = '  ' * level
+    logger.debug('%s!!! %r failed matching %s', prefix, snippet(instring, loc), expr)
 
 
 def normal_grammar(): return make_grammar(False)

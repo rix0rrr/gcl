@@ -149,7 +149,7 @@ class TestBrokenParseRecovery(unittest.TestCase):
     x = |
     y = 3;
     """, allow_errors=True)
-    self.assertSetEqual(set(['x', 'y']), set(suggestions))
+    self.assertSetEqual(set(['x']), set(suggestions))
 
   def testRecoverBinOp(self):
     suggestions = readAndQueryScope("""
@@ -234,7 +234,7 @@ class TestAutoComplete(unittest.TestCase):
     x = |
     y = 3;
     """)
-    self.assertSetEqual(set(['x', 'y']), set(suggestions))
+    self.assertSetEqual(set(['x']), set(suggestions))
 
   def testCompleteBinOp(self):
     suggestions = readAndAutocomplete("""
