@@ -941,11 +941,10 @@ def make_grammar(allow_errors):
   if allow_errors in GRAMMAR_CACHE:
     return GRAMMAR_CACHE[allow_errors]
 
-  def swallow2(synchronizing_tokens=';}'):
+  def swallow_remainder(synchronizing_tokens=';}'):
     if allow_errors:
-      return pattern('catch_errors2', parseWithLocation(p.Suppress(p.Optional(p.Regex('[^%s]*' % synchronizing_tokens))), UnparseableNode))
+      return pattern('swallow_remainder', parseWithLocation(p.Suppress(p.Optional(p.Regex('[^%s]*' % synchronizing_tokens))), UnparseableNode))
     return p.Empty()
-
 
   def swallow_errors(rule, synchronizing_tokens=';}'):
     """Extend the production rule by potentially eating errors.
@@ -999,7 +998,7 @@ def make_grammar(allow_errors):
     member_value = pattern('member_value', swallow_errors(expression_value | void_value))
     named_member = pattern('named_member', parseWithLocation(identifier + optional_schema + member_value, TupleMemberNode))
     documented_member = pattern('documented_member', parseWithLocation(parseWithLocation(p.ZeroOrMore(doc_comment), DocComment) + named_member, attach_doc_comment))
-    tuple_member = pattern('tuple_member', swallow_errors(inherit | documented_member) - swallow2())
+    tuple_member = pattern('tuple_member', swallow_errors(inherit | documented_member) - swallow_remainder())
 
     ErrorAwareTupleNode = functools.partial(TupleNode, allow_errors)
     tuple_members = pattern('tuple_members', parseWithLocation(listMembers(';', tuple_member), ErrorAwareTupleNode))
