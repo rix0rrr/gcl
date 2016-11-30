@@ -931,7 +931,7 @@ def pattern(name, pattern):
   Just for ease of debugging/tracing parse errors.
   """
   pattern.setName(name)
-  pattern.setDebugActions(debugStart, debugSuccess, debugException)
+  #pattern.setDebugActions(debugStart, debugSuccess, debugException)
   return pattern
 
 
