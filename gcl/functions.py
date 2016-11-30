@@ -45,21 +45,26 @@ class StringInterpolationProxy(object):
 
 
 def fmt(str, args=None, env=None):
-  """String interpolation.
+  """fmt(string, [tuple]) -> string
 
-  Normally, we'd just call str.format(**args), but we only want to evaluate
-  values from the tuple which are actually used in the string interpolation,
-  so we use proxy objects.
-
-  If no args are given, we're able to take the current environment.
+  Interpolate a string, replacing {patterns} with the variables with the same
+  name. If given a tuple, use the keys from the tuple to substitute. If not
+  given a tuple, uses the current environment as the variable source.
   """
+  # Normally, we'd just call str.format(**args), but we only want to evaluate
+  # values from the tuple which are actually used in the string interpolation,
+  # so we use proxy objects.
+
+  # If no args are given, we're able to take the current environment.
   args = args or env
   proxies = {k: StringInterpolationProxy(args, k) for k in args.keys()}
   return str.format(**proxies)
 
 
 def str_join(lst, sep=' '):
-  """Behaves like string.join from Python 2."""
+  """join(list, [sep]) -> string
+
+  Behaves like string.join from Python 2."""
   return sep.join(str(x) for x in lst)
 
 
@@ -70,12 +75,18 @@ def compose_all(tups):
 
 
 def split(string, sep=' '):
-  """Splits a string."""
+  """split(string, [separator]) -> [string]
+
+  Split a string on a separator.
+  """
   return string.split(sep)
 
 
 def has_key(tup, key):
-  """Return whether a given tuple has a key and the key is bound."""
+  """has(tuple, string) -> bool
+
+  Return whether a given tuple has a key and the key is bound.
+  """
   if isinstance(tup, framework.TupleLike):
     return tup.is_bound(key)
   if isinstance(tup, dict):
@@ -88,13 +99,46 @@ def has_key(tup, key):
 
 
 def flatten(list_of_lists):
-  """Flatten a list of lists."""
+  """flatten([[A]]) -> [A]
+
+  Flatten a list of lists.
+  """
   ret = []
   for lst in list_of_lists:
     if not isinstance(lst, list):
       raise ValueError('%r is not a list' % lst)
     ret.extend(lst)
   return ret
+
+
+def upper(x):
+  """upper(string) -> string
+
+  Uppercase a string.
+  """
+  if not framework.is_str(x):
+    raise ValueError('Argument to upper() should be a string, got %r' % x)
+  return x.upper()
+
+
+def lower(x):
+  """lower(string) -> string
+
+  Lowercase a string.
+  """
+  if not framework.is_str(x):
+    raise ValueError('Argument to lower() should be a string, got %r' % x)
+  return x.lower()
+
+
+def titlecase(x):
+  """titlecase(string) -> string
+
+  Titlecase a string.
+  """
+  if not framework.is_str(x):
+    raise ValueError('Argument to titlecase() should be a string, got %r' % x)
+  return x.title()
 
 
 builtin_functions = {
@@ -109,7 +153,10 @@ builtin_functions = {
     'has': has_key,
     'flatten': flatten,
     'sqrt': math.sqrt,  # Only for the Pythagoras demo :)
-    'len': len
+    'len': len,
+    'upper': upper,
+    'lower': lower,
+    'titlecase': titlecase
     }
 
 # Binary operators, by precedence level
