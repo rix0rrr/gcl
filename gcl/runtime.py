@@ -79,7 +79,9 @@ class Tuple(framework.TupleLike):
     """
     return self.__env_cache.get(
             current_scope.ident,
-            framework.Environment, current_scope, self.__parent_env, names=self.keys())
+            framework.Environment, current_scope,
+            names=self.keys(),
+            parent=framework.Environment({'self': current_scope}, parent=self.__parent_env))
 
   def keys(self):
     return self.__items.keys()
@@ -233,7 +235,9 @@ class CompositeTuple(Tuple):
 
   def _makeLookupList(self):
     # Count index from the back because we're going to reverse
-    envs = [framework.Environment({'base': CompositeBaseTuple(self, len(self.tuples) - i)}, env_of(t, self)) for i, t in enumerate(self.tuples)]
+    envs = [framework.Environment({'base': CompositeBaseTuple(self, len(self.tuples) - i)},
+                                  env_of(t, self))
+            for i, t in enumerate(self.tuples)]
     self.lookups = list(zip(self._tuples, envs))
     self.lookups.reverse()
 

@@ -164,6 +164,30 @@ class TestTuple(unittest.TestCase):
     obj = parse_tuple('he110-1orld = 3')
     self.assertEquals(3, obj['he110-1orld'])
 
+  def testSelfReference(self):
+    obj = parse_tuple('''
+      x = 1;
+      y = 2;
+      z = [k for k in self];
+    ''')
+    self.assertSetEqual(set(['x', 'y', 'z']), set(obj['z']))
+
+  def testSelfReferenceInCompositeTuple(self):
+    obj = parse_tuple('''
+      x = {
+        param;
+        z = [k for k in self];
+        bla = self.param;
+      };
+      y = x {
+        w = [k for k in self];
+        param = 'something';
+      };
+    ''')
+    self.assertSetEqual(set(['param', 'z', 'bla']), set(obj['x']['z']))
+    self.assertSetEqual(set(['param', 'z', 'bla', 'w']), set(obj['y']['w']))
+    self.assertEquals('something', obj['y']['bla'])
+
 class TestDocComments(unittest.TestCase):
   def testParseDocComment(self):
     obj = parse_tuple('''
