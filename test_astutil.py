@@ -272,17 +272,38 @@ class TestAutoComplete(unittest.TestCase):
     self.assertTrue('after' in completions)
 
 
+class TestFindValue(unittest.TestCase):
+  def testCantFindValueAtTopLevel(self):
+    found = readAndFindValue("""
+    tup|le = { value = 1 };
+    """)
+    self.assertEquals(None, found)
+
+  def testDoFindSideValues(self):
+    found = readAndFindValue("""
+    something = 3;
+    else = some|thing;
+    """)
+    self.assertEquals(3, found)
+
+
 def readAndQueryScope(source, **kwargs):
-    source, line, col = find_cursor(source)
-    tree = gcl.reads(source, filename='input.gcl', **kwargs)
-    rootpath = tree.find_tokens(gcl.SourceQuery('input.gcl', line, col))
-    return ast_util.enumerate_scope(rootpath)
+  source, line, col = find_cursor(source)
+  tree = gcl.reads(source, filename='input.gcl', **kwargs)
+  rootpath = tree.find_tokens(gcl.SourceQuery('input.gcl', line, col))
+  return ast_util.enumerate_scope(rootpath)
 
 
 def readAndAutocomplete(source, root_env=None):
   source, line, col = find_cursor(source)
   tree = gcl.reads(source, filename='input.gcl', allow_errors=True)
   return ast_util.find_completions_at_cursor(tree, 'input.gcl', line, col, root_env=root_env)
+
+def readAndFindValue(source):
+  source, line, col = find_cursor(source)
+  tree = gcl.reads(source, filename='input.gcl', allow_errors=True)
+  return ast_util.find_value_at_cursor(tree, 'input.gcl', line, col)
+
 
 
 def find_cursor(source):

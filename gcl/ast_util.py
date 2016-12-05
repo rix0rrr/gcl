@@ -134,8 +134,8 @@ def find_value_at_cursor(ast_tree, filename, line, col, root_env=gcl.default_env
   rootpath = path_until(rootpath, is_thunk)
 
   if len(rootpath) <= 1:
-    # Just the file tuple itself
-    return ''
+    # Just the file tuple itself, or some non-thunk element at the top level
+    return None
 
   tup = inflate_context_tuple(rootpath, root_env)
   try:
