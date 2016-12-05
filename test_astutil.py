@@ -157,6 +157,15 @@ class TestBrokenParseRecovery(unittest.TestCase):
     """, allow_errors=True)
     self.assertSetEqual(set(['y']), set(suggestions))
 
+  def testParseErrorDontMakeTuplesUnbalanced(self):
+    # Original error is that parse recovery here will at until the
+    # next "synchronizing" }, which will actually desynchronize the parser
+    # completely.
+    suggestions = readAndQueryScope("""
+      bier|
+      queues = {}
+    """, allow_errors=True)
+    # It's already cool if we don't fail parsing this
 
 
 class TestAutoComplete(unittest.TestCase):

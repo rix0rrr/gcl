@@ -942,19 +942,24 @@ def make_grammar(allow_errors):
   if allow_errors in GRAMMAR_CACHE:
     return GRAMMAR_CACHE[allow_errors]
 
-  def swallow_remainder(synchronizing_tokens=';}'):
+  tuple = p.Forward()
+  catch_errors = p.Forward()
+  catch_errors << (p.Regex('[^{};]*') - p.Optional(tuple) - p.Regex('[^;}]*'))
+
+  def swallow_remainder():
     if allow_errors:
-      return pattern('swallow_remainder', parseWithLocation(p.Suppress(p.Optional(p.Regex('[^%s]*' % synchronizing_tokens))), UnparseableNode))
+      return pattern('swallow_remainder', parseWithLocation(p.Suppress(catch_errors), UnparseableNode))
     return p.Empty()
 
-  def swallow_errors(rule, synchronizing_tokens=';}'):
+  def swallow_errors(rule):
     """Extend the production rule by potentially eating errors.
 
     This does not return a p.NoMatch() because that messes up the error messages.
     """
     ret = rule
     if allow_errors:
-      ret = rule | pattern('catch_errors', parseWithLocation(p.Suppress(p.Regex('[^%s]*' % synchronizing_tokens)), UnparseableNode))
+      # Synchronize on the first semicolon or the first unbalanced closing curly
+      ret = rule | pattern('catch_errors', parseWithLocation(p.Suppress(catch_errors), UnparseableNode))
     return ret
 
   class Grammar:
@@ -1003,7 +1008,7 @@ def make_grammar(allow_errors):
 
     ErrorAwareTupleNode = functools.partial(TupleNode, allow_errors)
     tuple_members = pattern('tuple_members', parseWithLocation(listMembers(';', tuple_member), ErrorAwareTupleNode))
-    tuple = pattern('tuple', parseWithLocation(bracketedList('{', '}', ';', tuple_member, allow_missing_close=allow_errors), ErrorAwareTupleNode))
+    tuple << pattern('tuple', parseWithLocation(bracketedList('{', '}', ';', tuple_member, allow_missing_close=allow_errors), ErrorAwareTupleNode))
 
     # Argument list will live by itself as a atom. Actually, it's a tuple, but we
     # don't call it that because we use that term for something else already :)
