@@ -124,7 +124,11 @@ def find_completions_at_cursor(ast_tree, filename, line, col, root_env=gcl.defau
     # don't return any completions.
     return {}
 
-  return find_deref_completions(rootpath) or enumerate_scope(rootpath, root_env=root_env)
+  try:
+    return find_deref_completions(rootpath) or enumerate_scope(rootpath, root_env=root_env)
+  except gcl.EvaluationError:
+    # Probably an unbound value or something--just return an empty list
+    return {}
 
 
 def find_value_at_cursor(ast_tree, filename, line, col, root_env=gcl.default_env):

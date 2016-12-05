@@ -258,6 +258,13 @@ class TestAutoComplete(unittest.TestCase):
     """)
     self.assertSetEqual(set(['values']), set(suggestions))
 
+  def testAutoCompleteWithUnboundValue(self):
+    suggestions = readAndAutocomplete("""
+    bla;
+    y = bla.|;
+    """)
+    self.assertSetEqual(set([]), set(suggestions))
+
   def testCompletePastIncludesWhenFileChangesAndCachingDisabled(self):
     includable = ["before = 1;"]
     def load_from_var(base, rel, env=None):
