@@ -137,10 +137,6 @@ def find_value_at_cursor(ast_tree, filename, line, col, root_env=gcl.default_env
     # Just the file tuple itself
     return ''
 
-  import sys
-  sys.stderr.write('%r\n' % rootpath)
-  sys.stderr.write('%r\n' % map(type, rootpath))
-
   tup = inflate_context_tuple(rootpath, root_env)
   try:
     return str(rootpath[-1].eval(tup.env(tup)))
