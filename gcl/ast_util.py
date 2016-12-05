@@ -99,7 +99,6 @@ def find_deref_completions(ast_rootpath, root_env=gcl.default_env):
   """Returns a dict of { name => Completions }."""
   tup = inflate_context_tuple(ast_rootpath, root_env)
   path = path_until(ast_rootpath, is_deref_node)
-  print ast_rootpath, path
   if not path:
     return {}
   deref = path[-1]
