@@ -242,6 +242,13 @@ class TestAutoComplete(unittest.TestCase):
     """)
     self.assertSetEqual(set(['y']), set(suggestions))
 
+  def testAutoCompleteWithListComprehension(self):
+    suggestions = readAndAutocomplete("""
+    bla = { values = [1, 2, 3, 4] };
+    y = [x * 2 for x in bla.v| ];
+    """)
+    self.assertSetEqual(set(['values']), set(suggestions))
+
   def testCompletePastIncludesWhenFileChangesAndCachingDisabled(self):
     includable = ["before = 1;"]
     def load_from_var(base, rel, env=None):

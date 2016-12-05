@@ -659,13 +659,14 @@ class Condition(framework.Thunk, AstNode):
 class ListComprehension(framework.Thunk, AstNode):
   def __init__(self, location, expr, var, collection, cond=None):
     self.ident = framework.obj_ident()
+    self.location = location
     self.expr = expr
     self.var = var
     self.collection = collection
     self.cond = cond
 
   def _children(self):
-    return [self.expr, self.var, self.collection, self.cond]
+    return filter(None, [self.expr, self.var, self.collection, self.cond])
 
   def eval(self, env):
     ret = []
