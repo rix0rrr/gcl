@@ -265,6 +265,20 @@ class TestAutoComplete(unittest.TestCase):
     """)
     self.assertSetEqual(set([]), set(suggestions))
 
+  def testAutoCompleteBrokenIndexSyntax(self):
+    suggestions = readAndAutocomplete("""
+    list = [{ x = 1 }];
+    value = list[0].|
+    """)
+    self.assertSetEqual(set(['list', 'value']), set(suggestions))
+
+  def testAutoCompleteInList(self):
+    suggestions = readAndAutocomplete("""
+    list = [{ x = 1 }];
+    value = list(0).|
+    """)
+    self.assertSetEqual(set(['x']), set(suggestions))
+
   def testCompletePastIncludesWhenFileChangesAndCachingDisabled(self):
     includable = ["before = 1;"]
     def load_from_var(base, rel, env=None):
