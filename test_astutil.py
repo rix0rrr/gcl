@@ -286,6 +286,13 @@ class TestFindValue(unittest.TestCase):
     """)
     self.assertEquals(3, found)
 
+  def testInherit(self):
+    found = readAndFindValue("""
+    something = 3;
+    else = { inherit somet|hing }
+    """)
+    self.assertEquals(3, found)
+
 
 def readAndQueryScope(source, **kwargs):
   source, line, col = find_cursor(source)
@@ -298,6 +305,7 @@ def readAndAutocomplete(source, root_env=None):
   source, line, col = find_cursor(source)
   tree = gcl.reads(source, filename='input.gcl', allow_errors=True)
   return ast_util.find_completions_at_cursor(tree, 'input.gcl', line, col, root_env=root_env)
+
 
 def readAndFindValue(source):
   source, line, col = find_cursor(source)
