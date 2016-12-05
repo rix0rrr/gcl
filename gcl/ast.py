@@ -204,7 +204,7 @@ class Inherit(framework.BindableThunk, AstNode):
 
   def eval(self, env):
     if not self.env:
-      raise exceptions.EvaluationError("Shouldn't evaluate unbound Inherit nodes")
+      raise exceptions.EvaluationError("Inherited key")
     return self.env[self.name]
 
   def __repr__(self):

@@ -139,9 +139,9 @@ def find_value_at_cursor(ast_tree, filename, line, col, root_env=gcl.default_env
 
   tup = inflate_context_tuple(rootpath, root_env)
   try:
-    return str(rootpath[-1].eval(tup.env(tup)))
+    return rootpath[-1].eval(tup.env(tup))
   except gcl.EvaluationError as e:
-    return str(e)
+    return e
 
 
 def pair_iter(xs):
