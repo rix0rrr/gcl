@@ -211,6 +211,28 @@ class TestAutoComplete(unittest.TestCase):
     """)
     self.assertSetEqual(set([]), set(suggestions))
 
+  def testAutoCompleteFromBaseTupleInIdentifierPosition(self):
+    suggestions = readAndAutocomplete("""
+    base = {
+      key;
+    };
+    bar = base {
+      k|
+    };
+    """)
+    self.assertSetEqual(set(['key']), set(suggestions))
+
+  def testAutoCompleteFromBaseTupleInIdentifierPositionNoPrefix(self):
+    suggestions = readAndAutocomplete("""
+    base = {
+      key;
+    };
+    bar = base {
+      |
+    };
+    """)
+    self.assertSetEqual(set(['key']), set(suggestions))
+
   def testAutoCompleteDocsScope(self):
     suggestions = readAndAutocomplete("""
     #. this is a foo
@@ -338,7 +360,7 @@ def readAndQueryScope(source, **kwargs):
   return ast_util.enumerate_scope(rootpath)
 
 
-def readAndAutocomplete(source, root_env=None):
+def readAndAutocomplete(source, root_env=gcl.Environment({})):
   source, line, col = find_cursor(source)
   tree = gcl.reads(source, filename='input.gcl', allow_errors=True)
   return ast_util.find_completions_at_cursor(tree, 'input.gcl', line, col, root_env=root_env)

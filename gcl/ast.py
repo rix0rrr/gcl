@@ -18,6 +18,10 @@ from . import functions
 from . import framework
 
 
+class UnparseableAccess(RuntimeError):
+  pass
+
+
 def do(*fns):
   def fg(args):
     for fn in fns:
@@ -689,6 +693,9 @@ class UnparseableNode(framework.Thunk, AstNode):
   def eval(self, env):
     raise exceptions.EvaluationError(self.location.error_in_context('Unparseable expression'))
 
+  def __getattr__(self, key):
+    raise UnparseableAccess('Accessing attribute %r of UnparseableNode' % key)
+
   def __repr__(self):
     return '<!' + self.location.original_string() + '!>'
 
@@ -948,7 +955,7 @@ def make_grammar(allow_errors):
 
   def swallow_remainder():
     if allow_errors:
-      return pattern('swallow_remainder', parseWithLocation(p.Suppress(catch_errors), UnparseableNode))
+      return pattern('swallow_remainder', p.Suppress(catch_errors))
     return p.Empty()
 
   def swallow_errors(rule):
@@ -1002,7 +1009,7 @@ def make_grammar(allow_errors):
     expression_value = pattern('expression_value', sym('=') - swallow_errors(expression))
     void_value = pattern('void_value', parseWithLocation(p.FollowedBy(sym(';') | sym('}')), lambda loc: Void(loc, 'nonameyet')))
     member_value = pattern('member_value', swallow_errors(expression_value | void_value))
-    named_member = pattern('named_member', parseWithLocation(identifier + optional_schema + member_value, TupleMemberNode))
+    named_member = pattern('named_member', parseWithLocation(identifier + optional_schema + member_value - swallow_remainder(), TupleMemberNode))
     documented_member = pattern('documented_member', parseWithLocation(parseWithLocation(p.ZeroOrMore(doc_comment), DocComment) + named_member, attach_doc_comment))
     tuple_member = pattern('tuple_member', swallow_errors(inherit | documented_member) - swallow_remainder())
 

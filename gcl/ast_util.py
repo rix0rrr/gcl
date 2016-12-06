@@ -7,9 +7,10 @@ from __future__ import absolute_import
 import textwrap
 
 import gcl
-from . import framework
-from . import exceptions
 from . import ast
+from . import exceptions
+from . import framework
+from . import runtime
 from . import schema
 
 def path_until(rootpath, pred):
@@ -27,10 +28,14 @@ def inflate_context_tuple(ast_rootpath, root_env):
   # We only need to look at tuple members going down.
   inflated = ast_rootpath[0].eval(root_env)
   try:
-    for member, tuple in pair_iter(ast_rootpath[1:]):
-      if is_tuple_member_node(member) and is_tuple_node(tuple):
-        inflated = inflated[member.name]
-  except gcl.EvaluationError:
+    for member in ast_rootpath[1:]:
+      if is_tuple_member_node(member):
+        new_value = inflated[member.name]
+        if not framework.is_tuple(new_value):
+          # We got to the end of our chain
+          return inflated
+        inflated = new_value
+  except (gcl.EvaluationError, ast.UnparseableAccess):
     # Eat evaluation error, probably means the rightmost tuplemember wasn't complete.
     # Return what we have so far.
     pass
@@ -121,6 +126,16 @@ def get_completion(haystack, name):
   return Completion(name, False, thunk.comment.as_string(), thunk.location)
 
 
+def is_identifier_position(rootpath):
+  """Return whether the cursor is in identifier-position in a member declaration."""
+  if len(rootpath) >= 2 and is_tuple_member_node(rootpath[-2]) and is_identifier(rootpath[-1]):
+    return True
+  if len(rootpath) >= 1 and is_tuple_node(rootpath[-1]):
+    # No deeper node than tuple? Must be identifier position, otherwise we'd have a TupleMemberNode.
+    return True
+  return False
+
+
 def find_completions_at_cursor(ast_tree, filename, line, col, root_env=gcl.default_env):
   """Find completions at the cursor.
 
@@ -129,18 +144,32 @@ def find_completions_at_cursor(ast_tree, filename, line, col, root_env=gcl.defau
   q = gcl.SourceQuery(filename, line, col - 1)
   rootpath = ast_tree.find_tokens(q)
 
-  if len(rootpath) >= 2 and is_tuple_member_node(rootpath[-2]) and is_identifier(rootpath[-1]):
-    # The cursor is in identifier-position in a member declaration. In that case, we
-    # don't return any completions.
-    return {}
+  print rootpath
+  print map(type, rootpath)
+
+  if is_identifier_position(rootpath):
+    return find_inherited_key_completions(rootpath, root_env)
 
   try:
-    ret = find_deref_completions(rootpath) or enumerate_scope(rootpath, root_env=root_env)
+    ret = find_deref_completions(rootpath, root_env) or enumerate_scope(rootpath, root_env=root_env)
     assert isinstance(ret, dict)
     return ret
   except gcl.EvaluationError:
     # Probably an unbound value or something--just return an empty list
     return {}
+
+
+def find_inherited_key_completions(rootpath, root_env):
+  """Return completion keys from INHERITED tuples.
+
+  Easiest way to get those is to evaluate the tuple, check if it is a CompositeTuple,
+  then enumerate the keys that are NOT in the rightmost tuple.
+  """
+  tup = inflate_context_tuple(rootpath, root_env)
+  if isinstance(tup, runtime.CompositeTuple):
+    keys = set((k for t in tup.tuples[:-1] for k in t.keys()))
+    return {n: get_completion(tup, n) for n in keys}
+  return {}
 
 
 def find_value_at_cursor(ast_tree, filename, line, col, root_env=gcl.default_env):
