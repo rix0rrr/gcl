@@ -144,9 +144,6 @@ def find_completions_at_cursor(ast_tree, filename, line, col, root_env=gcl.defau
   q = gcl.SourceQuery(filename, line, col - 1)
   rootpath = ast_tree.find_tokens(q)
 
-  print rootpath
-  print map(type, rootpath)
-
   if is_identifier_position(rootpath):
     return find_inherited_key_completions(rootpath, root_env)
 
