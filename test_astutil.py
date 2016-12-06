@@ -233,6 +233,30 @@ class TestAutoComplete(unittest.TestCase):
     """)
     self.assertSetEqual(set(['key']), set(suggestions))
 
+  def testAutoCompleteFromBaseTupleInIdentifierPositionInList(self):
+    suggestions = readAndAutocomplete("""
+    base = {
+      key;
+    };
+    bar = [ base {
+      |
+    }];
+    """)
+    self.assertSetEqual(set(['key']), set(suggestions))
+
+  def testAutoCompleteBetweenKeys(self):
+    suggestions = readAndAutocomplete("""
+    base = {
+      key;
+    };
+    bar = base {
+      x = 3;
+      |
+      y = 4;
+    };
+    """)
+    self.assertSetEqual(set(['key']), set(suggestions))
+
   def testAutoCompleteDocsScope(self):
     suggestions = readAndAutocomplete("""
     #. this is a foo
@@ -351,6 +375,12 @@ class TestFindValue(unittest.TestCase):
     else = { inherit somet|hing }
     """)
     self.assertEquals(3, found)
+
+  def testHoverOnInclude(self):
+    found = readAndFindValue("""
+    something = include 'be|rt' { x = 3; }
+    """)
+    self.assertEquals('bert', found)
 
 
 def readAndQueryScope(source, **kwargs):

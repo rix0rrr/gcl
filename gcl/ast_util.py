@@ -27,14 +27,17 @@ def inflate_context_tuple(ast_rootpath, root_env):
   """
   # We only need to look at tuple members going down.
   inflated = ast_rootpath[0].eval(root_env)
+  current = inflated
   try:
-    for member in ast_rootpath[1:]:
-      if is_tuple_member_node(member):
-        new_value = inflated[member.name]
-        if not framework.is_tuple(new_value):
-          # We got to the end of our chain
-          return inflated
-        inflated = new_value
+    for node in ast_rootpath[1:]:
+      if is_tuple_member_node(node):
+        assert framework.is_tuple(current)
+        current = inflated[node.name]
+      elif framework.is_list(current):
+        current = node.eval(inflated.env(inflated))
+
+      if framework.is_tuple(current):
+        inflated = current
   except (gcl.EvaluationError, ast.UnparseableAccess):
     # Eat evaluation error, probably means the rightmost tuplemember wasn't complete.
     # Return what we have so far.
@@ -164,7 +167,7 @@ def find_inherited_key_completions(rootpath, root_env):
   """
   tup = inflate_context_tuple(rootpath, root_env)
   if isinstance(tup, runtime.CompositeTuple):
-    keys = set((k for t in tup.tuples[:-1] for k in t.keys()))
+    keys = set(k for t in tup.tuples[:-1] for k in t.keys())
     return {n: get_completion(tup, n) for n in keys}
   return {}
 
