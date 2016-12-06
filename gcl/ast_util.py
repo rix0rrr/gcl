@@ -10,6 +10,7 @@ import gcl
 from . import framework
 from . import exceptions
 from . import ast
+from . import schema
 
 def path_until(rootpath, pred):
   for i in range(len(rootpath), 0, -1):
@@ -69,16 +70,23 @@ def enumerate_scope(ast_rootpath, root_env=None, include_default_builtins=False)
         if member.name not in scope:
           scope[member.name] = Completion(member.name, False, member.comment.as_string(), member.location)
 
-  if include_default_builtins:
+  if include_default_builtins:  # Backwards compat flag
     root_env = gcl.default_env
 
   if root_env:
     for k in root_env.keys():
-      if k not in scope:
+      if k not in scope and not hide_from_autocomplete(root_env[k]):
         v = root_env[k]
         scope[k] = Completion(k, True, dedent(v.__doc__ or ''), None)
 
   return scope
+
+
+def hide_from_autocomplete(value):
+  # This is a bit silly, but the default schema types are in the default environment
+  # as well. Don't know why I decided that, but rather than refactor that, easier
+  # to exclude them from the autocomplete list.
+  return isinstance(value, schema.Schema)
 
 
 def dedent(docstring):

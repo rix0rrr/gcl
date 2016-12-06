@@ -301,6 +301,13 @@ class TestAutoComplete(unittest.TestCase):
       completions = ast_util.find_completions_at_cursor(tree, 'input.gcl', line, col)
     self.assertTrue('after' in completions)
 
+  def testHideSchemasFromEnumeration(self):
+    suggestions = readAndAutocomplete("""
+      x = fo|
+    """, root_env=gcl.default_env)
+    self.assertNotIn('string', suggestions)
+
+
 
 class TestFindValue(unittest.TestCase):
   def testCantFindValueAtTopLevel(self):
