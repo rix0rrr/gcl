@@ -35,8 +35,6 @@ selector = p.Group(p.Optional(element + p.ZeroOrMore(ast.sym('.') + element)))
 
 def parseSelector(s):
   try:
-    print selector, s
-    print selector.parseString(s, parseAll=True)[0]
     return selector.parseString(s, parseAll=True)[0]
   except p.ParseException as e:
     raise RuntimeError('Error parsing %r: %s' % (s, e))

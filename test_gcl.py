@@ -57,10 +57,12 @@ class TestBasics(unittest.TestCase):
       3
       """))
 
+  def testSingleCharacterComment(self):
+    self.assertEquals(3, parse("#\n3"))
+
   def testLeaveTabsAlone(self):
     obj = parse('{ x = "\t" }')
     self.assertEquals('\t', obj['x'])
-
 
   def testComments2(self):
     self.assertEquals(3, parse("""
@@ -756,7 +758,7 @@ class TestErrorMessages(unittest.TestCase):
   def testNameOfVoidVariableIsMentioned(self):
     x = parse('{ the_var; }')
     try:
-      print x['the_var']
+      print(x['the_var'])
       self.fail('Should have thrown')
     except Exception as e:
       print(str(e))
