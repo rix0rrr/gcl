@@ -975,7 +975,7 @@ def make_grammar(allow_errors):
 
     expression = pattern('expression', p.Forward())
 
-    comment = p.Regex('#[^.]') + p.restOfLine
+    comment = p.Regex('#') + ~p.FollowedBy(sym('.')) + p.restOfLine
     doc_comment = pattern('doc_comment', (sym('#.') + p.restOfLine))
 
     quotedIdentifier = pattern('quotedIdentifier', p.QuotedString('`', multiline=False))

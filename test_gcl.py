@@ -57,10 +57,12 @@ class TestBasics(unittest.TestCase):
       3
       """))
 
+  def testSingleCharacterComment(self):
+    self.assertEquals(3, parse("#\n3"))
+
   def testLeaveTabsAlone(self):
     obj = parse('{ x = "\t" }')
     self.assertEquals('\t', obj['x'])
-
 
   def testComments2(self):
     self.assertEquals(3, parse("""
