@@ -5,13 +5,29 @@ These utility functions are intended for GCL CONSUMERS.
 from __future__ import absolute_import
 
 import json
-
 import hashlib
+import logging
 import sys
 from os import path
+import time
 
 from . import framework
 from . import exceptions
+
+
+logger = logging.getLogger('gcl')
+
+
+class LogTime(object):
+  def __init__(self, name):
+    self.name = name
+
+  def __enter__(self):
+    self.start = time.time()
+    return self
+
+  def __exit__(self, value, type, tb):
+    logger.info('%s, time taken %.1fs', self.name, time.time() - self.start)
 
 
 class RecursionException(RuntimeError):

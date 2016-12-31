@@ -16,6 +16,7 @@ from . import exceptions
 from . import schema
 from . import functions
 from . import framework
+from . import astracing
 
 
 class UnparseableAccess(RuntimeError):
@@ -737,7 +738,10 @@ class Include(framework.Thunk, AstNode):
       raise exceptions.EvaluationError('Included argument (%r) must be a string, got %r' %
                             (self.file_ref, file_ref))
 
+    import time
+    start = time.time()
     loaded = self.loader(self.current_file, file_ref, env=env.root)
+    print 'Loading %s took %.3f' % (file_ref, time.time() - start)
     assert not isinstance(loaded, framework.Thunk)
     return loaded
 
@@ -897,8 +901,7 @@ def kw(kw):
 
 
 def listMembers(sep, expr):
-  return p.Optional(p.delimitedList(expr, sep) +
-                    p.Optional(sep).suppress())
+  return p.Optional(p.delimitedList(expr, sep) + p.Optional(sep).suppress())
 
 
 def bracketedList(l, r, sep, expr, allow_missing_close=False):
@@ -906,8 +909,14 @@ def bracketedList(l, r, sep, expr, allow_missing_close=False):
 
   Empty list is possible, as is a trailing separator.
   """
+  # We may need to backtrack for lists, because of list comprehension, but not for
+  # any of the other lists
+  strict = l != '['
   closer = sym(r) if not allow_missing_close else p.Optional(sym(r))
-  return (sym(l) + listMembers(sep, expr) + closer)
+  if strict:
+    return sym(l) - listMembers(sep, expr) - closer
+  else:
+    return sym(l) + listMembers(sep, expr) + closer
 
 
 def unquote(s):
@@ -939,7 +948,7 @@ def pattern(name, pattern):
   Just for ease of debugging/tracing parse errors.
   """
   pattern.setName(name)
-  #pattern.setDebugActions(debugStart, debugSuccess, debugException)
+  astracing.maybe_trace(pattern)
   return pattern
 
 
@@ -973,10 +982,14 @@ def make_grammar(allow_errors):
     keywords = ['and', 'or', 'not', 'if', 'then', 'else', 'include', 'inherit', 'null', 'true', 'false',
         'for', 'in']
 
+    # This is a hack: this condition helps uselessly recursing into the grammar for
+    # juxtapositions.
+    early_abort_scan = ~p.oneOf([';', ',', ']', '}', 'for' ])
+
     expression = pattern('expression', p.Forward())
 
     comment = p.Regex('#') + ~p.FollowedBy(sym('.')) + p.restOfLine
-    doc_comment = pattern('doc_comment', (sym('#.') + p.restOfLine))
+    doc_comment = pattern('doc_comment', (sym('#.') - p.restOfLine))
 
     quotedIdentifier = pattern('quotedIdentifier', p.QuotedString('`', multiline=False))
 
@@ -986,7 +999,7 @@ def make_grammar(allow_errors):
     identifier = pattern('identifier', parseWithLocation(quotedIdentifier | p.Regex(r'[a-zA-Z_]([a-zA-Z0-9_:-]*[a-zA-Z0-9_])?'), Identifier))
 
     # Variable identifier (can't be any of the keywords, which may have lower matching priority)
-    variable = pattern('variable', ~p.Or([p.Keyword(k) for k in keywords]) + pattern('identifier', parseWithLocation(identifier.copy(), Var)))
+    variable = pattern('variable', ~p.MatchFirst(p.oneOf(keywords)) + pattern('identifier', parseWithLocation(identifier.copy(), Var)))
 
     # Contants
     integer = pattern('integer', parseWithLocation(p.Word(p.nums), convertAndMake(int, Literal)))
@@ -1000,18 +1013,18 @@ def make_grammar(allow_errors):
     list_ = pattern('list', parseWithLocation(bracketedList('[', ']', ',', expression), List))
 
     # Tuple
-    inherit = pattern('inherit', (kw('inherit') + p.ZeroOrMore(variable)).setParseAction(inheritNodes))
+    inherit = pattern('inherit', (kw('inherit') - p.ZeroOrMore(variable)).setParseAction(inheritNodes))
     schema_spec = pattern('schema_spec', parseWithLocation(p.Optional(p.Keyword('private').setParseAction(lambda: True), default=False)
-                  + p.Optional(p.Keyword('required').setParseAction(lambda: True), default=False)
-                  + p.Optional(expression, default=any_schema_expr), MemberSchemaNode))
-    optional_schema = pattern('optional_schema', p.Optional(p.Suppress(':') + schema_spec, default=no_schema))
+                  - p.Optional(p.Keyword('required').setParseAction(lambda: True), default=False)
+                  - p.Optional(expression, default=any_schema_expr), MemberSchemaNode))
+    optional_schema = pattern('optional_schema', p.Optional(p.Suppress(':') - schema_spec, default=no_schema))
 
     expression_value = pattern('expression_value', sym('=') - swallow_errors(expression))
     void_value = pattern('void_value', parseWithLocation(p.FollowedBy(sym(';') | sym('}')), lambda loc: Void(loc, 'nonameyet')))
     member_value = pattern('member_value', swallow_errors(expression_value | void_value))
-    named_member = pattern('named_member', parseWithLocation(identifier + optional_schema + member_value - swallow_remainder(), TupleMemberNode))
+    named_member = pattern('named_member', parseWithLocation(identifier - optional_schema - member_value - swallow_remainder(), TupleMemberNode))
     documented_member = pattern('documented_member', parseWithLocation(parseWithLocation(p.ZeroOrMore(doc_comment), DocComment) + named_member, attach_doc_comment))
-    tuple_member = pattern('tuple_member', swallow_errors(inherit | documented_member) - swallow_remainder())
+    tuple_member = early_abort_scan + pattern('tuple_member', swallow_errors(inherit | documented_member) - swallow_remainder())
 
     ErrorAwareTupleNode = functools.partial(TupleNode, allow_errors)
     tuple_members = pattern('tuple_members', parseWithLocation(listMembers(';', tuple_member), ErrorAwareTupleNode))
@@ -1021,9 +1034,9 @@ def make_grammar(allow_errors):
     # don't call it that because we use that term for something else already :)
     arg_list = pattern('arg_list', bracketedList('(', ')', ',', expression).setParseAction(ArgList))
 
-    parenthesized_expr = pattern('parenthesized_expr', (sym('(') + expression + ')').setParseAction(head))
+    parenthesized_expr = pattern('parenthesized_expr', (sym('(') - expression - ')').setParseAction(head))
 
-    unary_op = pattern('unary_op', (p.oneOf(' '.join(functions.unary_operators.keys())) + expression).setParseAction(mkUnOp))
+    unary_op = pattern('unary_op', (p.oneOf(' '.join(functions.unary_operators.keys())) - expression).setParseAction(mkUnOp))
 
     if_then_else = pattern('if_then_else', parseWithLocation(kw('if') + expression +
                     kw('then') + expression +
@@ -1036,31 +1049,31 @@ def make_grammar(allow_errors):
     # We don't allow space-application here
     # Now our grammar is becoming very dirty and hackish
     deref = pattern('deref', p.Forward())
-    include = pattern('include', parseWithLocation(kw('include') + deref, Include))
+    include = pattern('include', parseWithLocation(kw('include') - deref, Include))
 
     atom = pattern('atom', (tuple
-            | variable
-            | dq_string
             | sq_string
+            | dq_string
+            | variable
+            | floating
+            | integer
             | boolean
-            | list_comprehension
             | list_
             | null
             | unary_op
             | parenthesized_expr
             | if_then_else
             | include
-            | floating
-            | integer
+            | list_comprehension
             ))
 
     # We have two different forms of function application, so they can have 2
     # different precedences. This one: fn(args), which binds stronger than
     # dereferencing (fn(args).attr == (fn(args)).attr)
-    applic1 = pattern('applic1', parseWithLocation(atom + p.ZeroOrMore(arg_list), mkApplications))
+    applic1 = pattern('applic1', parseWithLocation(atom - p.ZeroOrMore(arg_list), mkApplications))
 
     # Dereferencing of an expression (obj.bar)
-    deref << parseWithLocation(applic1 + p.ZeroOrMore(p.Suppress('.') + swallow_errors(identifier)), mkDerefs)
+    deref << parseWithLocation(applic1 - p.ZeroOrMore(p.Suppress('.') - swallow_errors(identifier)), mkDerefs)
 
     # All binary operators at various precedence levels go here:
     # This piece of code does the moral equivalent of:
@@ -1071,52 +1084,28 @@ def make_grammar(allow_errors):
     # etc.
     term = deref
     for op_level in functions.binary_operators_before_juxtaposition:
-      operator_syms = ' '.join(op_level.keys())
-      term = (term + p.ZeroOrMore(p.oneOf(operator_syms) + term)).setParseAction(mkBinOps)
+      operator_syms = list(op_level.keys())
+      term = (term - p.ZeroOrMore(p.oneOf(operator_syms) - term)).setParseAction(mkBinOps)
 
     # Juxtaposition function application (fn arg), must be 1-arg every time
-    applic2 = pattern('applic2', parseWithLocation(term + p.ZeroOrMore(term), mkApplications))
+    applic2 = pattern('applic2', parseWithLocation(term - p.ZeroOrMore(early_abort_scan + term), mkApplications))
 
     term = applic2
     for op_level in functions.binary_operators_after_juxtaposition:
-      operator_syms = ' '.join(op_level.keys())
-      term = (term + p.ZeroOrMore(p.oneOf(operator_syms) + term)).setParseAction(mkBinOps)
+      operator_syms = list(op_level.keys())
+      term = (term - p.ZeroOrMore(p.oneOf(operator_syms) - term)).setParseAction(mkBinOps)
 
     expression << term
 
     # Two entry points: start at an arbitrary expression, or expect the top-level
     # scope to be a tuple.
-    start = pattern('start', expression.ignore(comment))
+    start = pattern('start', expression.copy().ignore(comment))
     start_tuple = tuple_members.ignore(comment)
   GRAMMAR_CACHE[allow_errors] = Grammar
   return Grammar
 
 
-def snippet(s, loc):
-    return s[loc:loc+5] + '...'
-
-
 logger = logging.getLogger(__name__)
-level = 0
-
-
-def debugStart( instring, loc, expr ):
-    global level
-    prefix = '  ' * level
-    logger.debug('%s>>> %r trying %s', prefix, snippet(instring, loc), expr)
-    level += 1
-
-def debugSuccess( instring, startloc, endloc, expr, toks ):
-    global level
-    level -= 1
-    prefix = '  ' * level
-    logger.debug('%s<<< %r success matching %s => %r', prefix, snippet(instring, startloc), expr, toks)
-
-def debugException( instring, loc, expr, exc ):
-    global level
-    level -= 1
-    prefix = '  ' * level
-    logger.debug('%s!!! %r failed matching %s', prefix, snippet(instring, loc), expr)
 
 
 def normal_grammar(): return make_grammar(False)

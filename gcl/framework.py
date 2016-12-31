@@ -1,4 +1,10 @@
+import logging
+
 from . import exceptions
+
+
+logger = logging.getLogger(__name__)
+
 
 class Thunk(object):
   """An object that is evaluatable in a scope."""

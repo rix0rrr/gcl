@@ -378,7 +378,8 @@ class TestFindValue(unittest.TestCase):
 
   def testHoverOnInclude(self):
     found = readAndFindValue("""
-    something = include 'be|rt' { x = 3; }
+    y = 1;
+    something = include 'be|rt' { inherit y; x = 3; }
     """)
     self.assertEquals('bert', found)
 

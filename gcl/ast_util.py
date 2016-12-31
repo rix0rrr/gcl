@@ -12,6 +12,7 @@ from . import exceptions
 from . import framework
 from . import runtime
 from . import schema
+from . import util
 
 def path_until(rootpath, pred):
   for i in range(len(rootpath), 0, -1):
@@ -25,24 +26,30 @@ def inflate_context_tuple(ast_rootpath, root_env):
 
   Walking the AST tree upwards, evaluate from the root down again.
   """
-  # We only need to look at tuple members going down.
-  inflated = ast_rootpath[0].eval(root_env)
-  current = inflated
-  try:
-    for node in ast_rootpath[1:]:
-      if is_tuple_member_node(node):
-        assert framework.is_tuple(current)
-        current = inflated[node.name]
-      elif framework.is_list(current):
-        current = node.eval(inflated.env(inflated))
+  with util.LogTime('inflate_context_tuple'):
+    # We only need to look at tuple members going down.
+    inflated = ast_rootpath[0].eval(root_env)
+    current = inflated
+    env = root_env
+    try:
+      for node in ast_rootpath[1:]:
+        if is_tuple_member_node(node):
+          assert framework.is_tuple(current)
+          with util.LogTime('into tuple'):
+            thunk, env = inflated.get_thunk_env(node.name)
+            current = framework.eval(thunk, env)
 
-      if framework.is_tuple(current):
-        inflated = current
-  except (gcl.EvaluationError, ast.UnparseableAccess):
-    # Eat evaluation error, probably means the rightmost tuplemember wasn't complete.
-    # Return what we have so far.
-    pass
-  return inflated
+        elif framework.is_list(current):
+          with util.LogTime('eval thing'):
+            current = framework.eval(node, env)
+
+        if framework.is_tuple(current):
+          inflated = current
+    except (gcl.EvaluationError, ast.UnparseableAccess):
+      # Eat evaluation error, probably means the rightmost tuplemember wasn't complete.
+      # Return what we have so far.
+      pass
+    return inflated
 
 
 def is_tuple_node(x):
@@ -71,23 +78,24 @@ def enumerate_scope(ast_rootpath, root_env=None, include_default_builtins=False)
   Enumerates all keys that are in scope in a given tuple. The node
   part of the tuple may be None, in case the binding is a built-in.
   """
-  scope = {}
-  for node in reversed(ast_rootpath):
-    if is_tuple_node(node):
-      for member in node.members:
-        if member.name not in scope:
-          scope[member.name] = Completion(member.name, False, member.comment.as_string(), member.location)
+  with util.LogTime('enumerate_scope'):
+    scope = {}
+    for node in reversed(ast_rootpath):
+      if is_tuple_node(node):
+        for member in node.members:
+          if member.name not in scope:
+            scope[member.name] = Completion(member.name, False, member.comment.as_string(), member.location)
 
-  if include_default_builtins:  # Backwards compat flag
-    root_env = gcl.default_env
+    if include_default_builtins:  # Backwards compat flag
+      root_env = gcl.default_env
 
-  if root_env:
-    for k in root_env.keys():
-      if k not in scope and not hide_from_autocomplete(root_env[k]):
-        v = root_env[k]
-        scope[k] = Completion(k, True, dedent(v.__doc__ or ''), None)
+    if root_env:
+      for k in root_env.keys():
+        if k not in scope and not hide_from_autocomplete(root_env[k]):
+          v = root_env[k]
+          scope[k] = Completion(k, True, dedent(v.__doc__ or ''), None)
 
-  return scope
+    return scope
 
 
 def hide_from_autocomplete(value):
@@ -113,15 +121,16 @@ def strip_initial_empty_line(x):
 
 def find_deref_completions(ast_rootpath, root_env=gcl.default_env):
   """Returns a dict of { name => Completions }."""
-  tup = inflate_context_tuple(ast_rootpath, root_env)
-  path = path_until(ast_rootpath, is_deref_node)
-  if not path:
-    return {}
-  deref = path[-1]
-  haystack = deref.haystack(tup.env(tup))
-  if not hasattr(haystack, 'keys'):
-    return {}
-  return {n: get_completion(haystack, n) for n in haystack.keys()}
+  with util.LogTime('find_deref_completions'):
+    tup = inflate_context_tuple(ast_rootpath, root_env)
+    path = path_until(ast_rootpath, is_deref_node)
+    if not path:
+      return {}
+    deref = path[-1]
+    haystack = deref.haystack(tup.env(tup))
+    if not hasattr(haystack, 'keys'):
+      return {}
+    return {n: get_completion(haystack, n) for n in haystack.keys()}
 
 
 def get_completion(haystack, name):
