@@ -85,6 +85,9 @@ class Tuple(framework.TupleLike):
   def keys(self):
     return self.__items.keys()
 
+  def values(self):
+    return [self[k] for k in self.keys()]
+
   @property
   def tuples(self):
     return [self]
