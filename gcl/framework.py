@@ -118,6 +118,35 @@ class Activation(object):
     return (thunk.ident, env.ident)
 
 
+class EvaluationContext(object):
+  stack = []
+
+  def __init__(self, validate=True):
+    self.validate = validate
+
+  def __enter__(self):
+    self.stack.append(self)
+    return self
+
+  def __exit__(self, value, type, tb):
+    self.stack.pop()
+
+  @classmethod
+  def current(cls):
+    return cls.stack[-1]
+
+
+# Default context
+EvaluationContext.stack.append(EvaluationContext(validate=True))
+
+
+def get_key(obj, key, validate=True):
+  if not validate:
+    getter = getattr(obj, 'get_no_validate', None)
+    if getter: return getter(key)
+  return obj[key]
+
+
 class Environment(object):
   """Binding environment, inherits from another Environment."""
 
@@ -129,10 +158,7 @@ class Environment(object):
 
   def __getitem__(self, key):
     if key in self.names:
-      getter = getattr(self.values, 'get_no_validate', None)
-      if getter:
-        return getter(key)
-      return self.values[key]
+      return get_key(self.values, key, validate=False)
     return self.parent[key]
 
   def get_node(self, key):

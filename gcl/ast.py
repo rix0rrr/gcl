@@ -439,7 +439,9 @@ class Application(framework.Thunk, AstNode):
     return framework.eval(self.right_as_list(), env)
 
   def eval(self, env):
-    fn = framework.eval(self.left, env)
+    with framework.EvaluationContext(validate=False):
+      # Temporarily disable validation
+      fn = framework.eval(self.left, env)
 
     try:
       # Tuple application
@@ -580,7 +582,12 @@ class Deref(framework.Thunk, AstNode):
 
   def eval(self, env):
     try:
-      haystack = framework.eval(self.haystack, env)
+      with framework.EvaluationContext(validate=True):
+        haystack = framework.eval(self.haystack, env)
+        # We should validate the left-hand side of the deref always, but don't impose
+        # any external schema.
+        schema.validate(haystack, schema.any_schema);
+
       return haystack[self.needle]
     except exceptions.EvaluationError as e:
       raise exceptions.EvaluationError(self.location.error_in_context('while evaluating \'%r\'' % self), e)

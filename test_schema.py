@@ -252,6 +252,46 @@ class TestSchemaInGCL(unittest.TestCase):
     with self.assertRaises(exceptions.SchemaError):
       zzz = x['objects']['broken']['atoms']
 
+  def testSchemasFromScopes(self):
+    """Found a case in the wild where using schema objects from a scope seems to make a difference."""
+    model = gcl.loads("""
+        scope = {
+            X = { id: required };
+            Y = { xs: X };
+        };
+
+        y = scope.Y { xs = scope.X { id = 'hoi' }};
+    """)
+    self.assertEquals('hoi', model['y']['xs']['id'])
+
+  def testGetUnrelatedAttributeOfNonValidatingObject(self):
+    """Getting a value from a nonvalidating object should fail."""
+    model = gcl.loads("""
+      obj = {
+        id: required;
+        ego = 3;
+      };
+      copy = obj.ego;
+    """)
+    with self.assertRaises(exceptions.EvaluationError):
+      zzz = model['copy']
+
+  def testValidateOuterObjectWhileApplyingInnerObject(self):
+    """We disable validations while getting the LHS of an application, but the inner deref should
+    be validated again."""
+    model = gcl.loads("""
+      obj = {
+        id: required;
+        Class = { X: required; }
+      };
+
+      # This is not allowed because 'obj' should fail validation, no matter if
+      # 'obj' appears in the LHS of an application.
+      copy = obj.Class { X = 3 };
+    """)
+    with self.assertRaises(exceptions.EvaluationError):
+      self.assertEquals(3, model['copy']['X'])
+
   def testSchemaTypoExceptionIsDescriptive(self):
     """Check that if you make a typo in a type name the error is helpful."""
 
