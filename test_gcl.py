@@ -166,6 +166,7 @@ class TestTuple(unittest.TestCase):
     obj = parse_tuple('he110-1orld = 3')
     self.assertEquals(3, obj['he110-1orld'])
 
+<<<<<<< HEAD
   def testSelfReference(self):
     obj = parse_tuple('''
       x = 1;
@@ -189,6 +190,15 @@ class TestTuple(unittest.TestCase):
     self.assertSetEqual(set(['param', 'z', 'bla']), set(obj['x']['z']))
     self.assertSetEqual(set(['param', 'z', 'bla', 'w']), set(obj['y']['w']))
     self.assertEquals('something', obj['y']['bla'])
+
+  def testTupleHasValues(self):
+    obj = parse_tuple('x = { y = 1 }')
+    print(obj.values())
+
+  def testCompositeTupleHasValues(self):
+    obj = parse_tuple('x = { z = 2 } { y = 1 }')
+    print(obj.values())
+
 
 class TestDocComments(unittest.TestCase):
   def testParseDocComment(self):

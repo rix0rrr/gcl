@@ -54,6 +54,7 @@ class Tuple(framework.TupleLike):
       x = self.get_no_validate(key)
       sub_schema = self.tuple_schema.get_subschema(key)
       schema.validate(x, sub_schema)
+
       schema.attach(x, sub_schema)
       self._value_cache[key] = x
 
@@ -85,6 +86,9 @@ class Tuple(framework.TupleLike):
 
   def keys(self):
     return self.__items.keys()
+
+  def values(self):
+    return [self[k] for k in self.keys()]
 
   @property
   def tuples(self):

@@ -477,7 +477,9 @@ class Application(framework.Thunk, AstNode):
     return framework.eval(self.right_as_list(), env)
 
   def eval(self, env):
-    fn = framework.eval(self.left, env)
+    with framework.EvaluationContext(validate=False):
+      # Temporarily disable validation
+      fn = framework.eval(self.left, env)
 
     try:
       # Tuple application
