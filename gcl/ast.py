@@ -60,7 +60,7 @@ def callParseAction(action, src_loc, tokens):
 def parseWithLocation(expr, action):
   startMarker = p.Empty().setParseAction(lambda s, loc, t: loc)
   endMarker = startMarker.copy()
-  complete = startMarker + expr + endMarker
+  complete = p.And([startMarker, expr, endMarker])
   startMarker.setName(str(expr))
 
   def parseAction(s, loc, t):
@@ -70,6 +70,16 @@ def parseWithLocation(expr, action):
 
   complete.setParseAction(parseAction)
   return complete
+
+
+def parseNoLocation(expr, action):
+  def parseAction(s, loc, t):
+    inner_tokens = list(t)
+    src_loc = SourceLocation(s, 0, 0)
+    return callParseAction(action, src_loc, inner_tokens)
+
+  expr.setParseAction(parseAction)
+  return expr
 
 
 def convertAndMake(converter, handler):
@@ -88,6 +98,8 @@ the_context = ParseContext()
 
 
 class SourceLocation(object):
+  __slots__ = ['filename', 'string', 'start_offset', 'end_offset']
+
   def __init__(self, string, start_offset, end_offset=None):
     self.filename = the_context.filename
     self.string = string
@@ -184,7 +196,7 @@ class SourceQuery(object):
 
 class Null(framework.Thunk, AstNode):
   """Null, evaluates to None."""
-  def __init__(self, location, _):
+  def __init__(self, location):
     self.ident = framework.obj_ident()
     self.location = location
 
@@ -223,8 +235,9 @@ def inheritNodes(tokens):
 
 
 class Identifier(AstNode):
+  __slots__ = ['location', 'name']
+
   def __init__(self, location, name):
-    assert framework.is_str(name)
     self.location = location
     self.name = name
 
@@ -237,6 +250,8 @@ class Identifier(AstNode):
 
 class Literal(framework.Thunk, AstNode):
   """A GCL literal expression."""
+  __slots__ = ['ident', 'value', 'location']
+
   def __init__(self, location, value):
     self.ident = framework.obj_ident()
     self.value = value
@@ -253,8 +268,10 @@ class Literal(framework.Thunk, AstNode):
 
 class Var(framework.Thunk, AstNode):
   """Reference to another value."""
+  __slots__ = ['ident', 'identifier', 'name', 'location']
+
   def __init__(self, location, identifier):
-    assert isinstance(identifier, Identifier)
+    #assert isinstance(identifier, Identifier)
     self.ident = framework.obj_ident()
     self.identifier = identifier
     self.name = identifier.name
@@ -899,7 +916,7 @@ def sym(sym):
 
 
 def kw(kw):
-  return p.Keyword(kw).suppress()
+  return p.Regex(kw + r'\b').suppress()
 
 
 def listMembers(sep, expr):
@@ -914,6 +931,7 @@ def bracketedList(l, r, sep, expr, allow_missing_close=False):
   # We may need to backtrack for lists, because of list comprehension, but not for
   # any of the other lists
   strict = l != '['
+
   closer = sym(r) if not allow_missing_close else p.Optional(sym(r))
   if strict:
     return sym(l) - listMembers(sep, expr) - closer
@@ -981,12 +999,12 @@ def make_grammar(allow_errors):
     return ret
 
   class Grammar:
-    keywords = ['and', 'or', 'not', 'if', 'then', 'else', 'include', 'inherit', 'null', 'true', 'false',
-        'for', 'in']
+    expr_keywords = ['and', 'or', 'not', 'if', 'then', 'else', 'include', 'null', 'true', 'false', 'for', 'in']
+    keywords = expr_keywords + ['inherit']
 
     # This is a hack: this condition helps uselessly recursing into the grammar for
     # juxtapositions.
-    early_abort_scan = ~p.oneOf([';', ',', ']', '}', 'for' ])
+    early_abort_scan = ~p.oneOf([';', ',', ']', '}'])
 
     expression = pattern('expression', p.Forward())
 
@@ -998,18 +1016,18 @@ def make_grammar(allow_errors):
     # - Must start with an alphascore
     # - May contain alphanumericscores and special characters such as : and -
     # - Must not end in a special character
-    identifier = pattern('identifier', parseWithLocation(quotedIdentifier | p.Regex(r'[a-zA-Z_]([a-zA-Z0-9_:-]*[a-zA-Z0-9_])?'), Identifier))
+    identifier = pattern('identifier', parseWithLocation(pattern('identifier_regex', p.Regex(r'[a-zA-Z_]([a-zA-Z0-9_:-]*[a-zA-Z0-9_])?') | quotedIdentifier), Identifier))
 
     # Variable identifier (can't be any of the keywords, which may have lower matching priority)
-    variable = pattern('variable', ~p.MatchFirst(p.oneOf(keywords)) + pattern('identifier', parseWithLocation(identifier.copy(), Var)))
+    variable = pattern('variable', ~p.MatchFirst(p.oneOf(keywords)) + parseWithLocation(identifier.copy(), Var))
 
     # Contants
     integer = pattern('integer', parseWithLocation(p.Word(p.nums), convertAndMake(int, Literal)))
     floating = pattern('floating', parseWithLocation(p.Regex(r'\d*\.\d+'), convertAndMake(float, Literal)))
     dq_string = pattern('dq_string', parseWithLocation(p.QuotedString('"', escChar='\\', unquoteResults=False, multiline=True), convertAndMake(unquote, Literal)))
     sq_string = pattern('sq_string', parseWithLocation(p.QuotedString("'", escChar='\\', unquoteResults=False, multiline=True), convertAndMake(unquote, Literal)))
-    boolean = pattern('boolean', parseWithLocation(p.Keyword('true') | p.Keyword('false'), convertAndMake(mkBool, Literal)))
-    null = pattern('null', parseWithLocation(p.Keyword('null'), Null))
+    boolean = pattern('boolean', parseWithLocation(p.Regex(r'true\b|false\b'), convertAndMake(mkBool, Literal)))
+    null = pattern('null', parseWithLocation(kw('null'), Null))
 
     # List
     list_ = pattern('list', parseWithLocation(bracketedList('[', ']', ',', expression), List))
@@ -1022,7 +1040,7 @@ def make_grammar(allow_errors):
     optional_schema = pattern('optional_schema', p.Optional(p.Suppress(':') - schema_spec, default=no_schema))
 
     expression_value = pattern('expression_value', sym('=') - swallow_errors(expression))
-    void_value = pattern('void_value', parseWithLocation(p.FollowedBy(sym(';') | sym('}')), lambda loc: Void(loc, 'nonameyet')))
+    void_value = pattern('void_value', parseWithLocation(p.Regex('(?=[;}])'), lambda loc, _: Void(loc, 'nonameyet')))
     member_value = pattern('member_value', swallow_errors(expression_value | void_value))
     named_member = pattern('named_member', parseWithLocation(identifier - optional_schema - member_value - swallow_remainder(), TupleMemberNode))
     documented_member = pattern('documented_member', parseWithLocation(parseWithLocation(p.ZeroOrMore(doc_comment), DocComment) + named_member, attach_doc_comment))

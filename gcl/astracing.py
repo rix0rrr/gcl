@@ -20,14 +20,17 @@ class Invocation(object):
     self.time += rhs.time
     return self
 
+  def avg(self):
+    return self.time/self.count if self.count else 0.0
+
   def __str__(self):
-    return '%8.3f/%3d (%.4f)' % (self.time, self.count, self.time/self.count)
+    return '%8.3f/%3d (%.4f)' % (self.time, self.count, self.avg())
 
 
 class ExpressionTrace(object):
   def __init__(self):
-    self.succeeded_parsing = Invocation(0.0)
-    self.failed_parsing = Invocation(0.0)
+    self.succeeded_parsing = Invocation(0.0, 0)
+    self.failed_parsing = Invocation(0.0, 0)
 
   @property
   def total_time(self):
