@@ -43,6 +43,12 @@ class TestCombinators(unittest.TestCase):
       grammar_fails(grammar, 'baba')
       grammar_fails(grammar, 'bc')
 
+  def test_incomplete_parse(self):
+    grammar = T('a') + T('b') + T('c')
+
+    with self.assertRaises(ParseError):
+      grammar_fails(grammar, 'ab')
+
   def test_delimited_list(self):
     grammar = sparse.delimited_list(T('('), T('a'), T(','), T(')'))
     grammar_parses(grammar, '()')
@@ -69,6 +75,11 @@ class TestCombinators(unittest.TestCase):
       grammar_fails(expr, '(a))')
       grammar_fails(expr, '((a)')
 
+  def test_simplify_sequences(self):
+    expr = T('a') + T('b') + T('c')
+    parser = expr.make_parser()
+    self.assertEquals(3, len(parser.parsers))
+
   def test_recognize_subroutines(self):
     """To keep the size of FSMs manageable.
 
@@ -82,67 +93,82 @@ class TestCombinators(unittest.TestCase):
 
     # FIXME: Don't know yet how to test this properly...
 
-    #grammar_parses(grammar, 'abcd')
+    grammar_parses(grammar, 'abcd')
     grammar_parses(grammar, 'abce')
 
 
 class TestGrammarHelpers(unittest.TestCase):
   def test_parenthesized(self):
-    grammar = sparse.parenthesized(T('a').action(lambda x: x.type))
+    grammar = sparse.parenthesized(T('a').action(lambda x: x))
     ret = grammar_parses(grammar, '(a)')
-    self.assertEquals(('a',), ret)
+    self.assertEquals(['a'], ret)
 
 
 class TestParseActionsAndCapture(unittest.TestCase):
   def test_capture_sequence_returns_result(self):
     grammar = T('a') + T('b') + T('c')
     g = grammar.action(lambda a, b, c: 'toet')
-    debug_grammar(g)
     ret = grammar_parses(g, 'abc')
-    self.assertEquals(('toet',), ret)
+    self.assertEquals(['toet'], ret)
 
   def test_suppress_capture(self):
     grammar = T('a') + T('b').suppress() + T('c')
     g = grammar.action(lambda a, c: 'toet')
     ret = grammar_parses(g, 'abc')
-    self.assertEquals(('toet',), ret)
+    self.assertEquals(['toet'], ret)
 
   def test_capture_distinguishes_either(self):
     grammar = ((T('a') + T('b')).action(lambda a, b: 'one')
               | T('c').action(lambda c: 'two'))
 
-    self.assertEquals(('one',), grammar_parses(grammar, 'ab'))
-    self.assertEquals(('two',), grammar_parses(grammar, 'c'))
+    self.assertEquals(['one'], grammar_parses(grammar, 'ab'))
+    self.assertEquals(['two'], grammar_parses(grammar, 'c'))
 
   def test_optional_default_capture(self):
     grammar = sparse.Optional(T('a'), default='b') + T('c', capture=False)
+    sparse.print_parser(grammar.make_parser(), sys.stdout)
     ret = grammar_parses(grammar, 'c')
-    self.assertEquals(('b',), ret)
+    self.assertEquals(['b'], ret)
 
+  def test_two_optionals(self):
+    ab = sparse.Optional(T('a') + T('b'))
+    c = sparse.Optional(T('c'))
+    grammar = ab + c + T('d')
 
-class TestFSMSimplification(unittest.TestCase):
-  def test_simplify_capture_plus_dispatch(self):
-    end_state = sparse.State()
-    fsm = sparse.State([sparse.Transition('a',
-        target_state=sparse.State([sparse.Transition(sparse.EPSILON, dispatch_captures=object(),
-          target_state=end_state)]))])
-    simplified = sparse.simplify_fsm(fsm)
+    grammar_parses(grammar, 'abcd')
+    grammar_parses(grammar, 'abd')
+    grammar_parses(grammar, 'cd')
+    grammar_parses(grammar, 'd')
 
-    # This should end up with 2 transitions simplified into 1
-    self.assertEquals(end_state, simplified.transitions()[0].target_state)
+    with self.assertRaises(sparse.ParseError):
+      grammar_fails(grammar, 'abcd')
+      grammar_fails(grammar, 'ad')
 
-  def test_simplify_sequence_of_three(self):
-    end_state = sparse.State()
-    fsm = sparse.State([sparse.Transition('a',
-        target_state=sparse.State([sparse.Transition('b',
-            target_state=sparse.State([sparse.Transition(sparse.EPSILON, dispatch_captures=object(),
-              target_state=end_state)]))]))])
-    simplified = sparse.simplify_fsm(fsm)
+  def test_alts_with_optional(self):
+    grammar = (sparse.Optional(T('a')) | sparse.Optional(T('b'))) + T('c')
 
-    sparse.graphvizify(sparse.ParserFSM(simplified, end_state), sys.stdout)
+    grammar_parses(grammar, 'ac')
+    grammar_parses(grammar, 'bc')
+    grammar_parses(grammar, 'c')
 
-    # This should end up with 3 transitions simplified into 2
-    self.assertEquals(end_state, simplified.transitions()[0].target_state.transitions()[0].target_state)
+  def test_error_reporting_wo_backtracking(self):
+    grammar = sparse.Optional(T('a') - T('b') + T('c')) + T(';')
+
+    try:
+      grammar_fails(grammar, 'ab;')  # The error should tell me I forgot the c
+      self.fail('Should have thrown')
+    except sparse.ParseError as e:
+      print e
+      self.assertTrue('\'c\'' in str(e))
+
+  def test_more_complex_capture(self):
+    def grab(*args):
+      return Box(args)
+
+    cccab = (sparse.ZeroOrMore(T('c')) + T('a').action(grab)).action(grab)
+
+    grammar_parses(cccab, 'a')
+
 
 class TestTokenizer(unittest.TestCase):
   def test_tokens_are_simplified_correctly(self):
@@ -165,32 +191,38 @@ class TestTokenizer(unittest.TestCase):
     self.assertEquals([1, 2, 4, 8, 15, 16, 23], numbers)
 
 
+class TestErrorReporting(unittest.TestCase):
+  def test_find_line(self):
+    self.assertEquals((0, 'ab', 0), sparse.find_line_context(*line_with_marker('|ab\ncd\nef')))
+    self.assertEquals((0, 'ab', 2), sparse.find_line_context(*line_with_marker('ab|\ncd\nef')))
+    self.assertEquals((1, 'cd', 0), sparse.find_line_context(*line_with_marker('ab\n|cd\nef')))
+    self.assertEquals((1, 'cd', 1), sparse.find_line_context(*line_with_marker('ab\nc|d\nef')))
+    self.assertEquals((1, 'cd', 2), sparse.find_line_context(*line_with_marker('ab\ncd|\nef')))
+    self.assertEquals((2, 'ef', 2), sparse.find_line_context(*line_with_marker('ab\ncd\nef|')))
+
+
+def line_with_marker(text):
+  i = text.index('|')
+  return text[:i] + text[i+1:], i
+
+
+class Box(object):
+  def __init__(self, thing):
+    self.thing = thing
+
+
 def ts(str):
-  ret = []
   for i, t in enumerate(str):
-    ret.append(sparse.Token(t, t, (i, i+1)))
-  return ret
+   yield sparse.Token(t, t, (i, i+1))
 
 
 def grammar_fails(grammar, tokens):
-  parser = sparse.make_parser(grammar)
-  tokens = ts(tokens)
-  parser.feed_all(tokens)
-  parser.assert_finished()
+  sparse.parse_all(sparse.make_parser(grammar), ts(tokens))
 
 
 def grammar_parses(grammar, tokens):
-  parser = sparse.make_parser(grammar)
-  tokens = ts(tokens)
   try:
-    for i, token in enumerate(tokens):
-      parser.feed(token)
-    return parser.parsed_value()
-  except Exception:
-    print [t.type for t in tokens[:i+1]]
-    sparse.graphvizify(parser, sys.stdout)
+    return sparse.parse_all(sparse.make_parser(grammar), ts(tokens))
+  except ParseError:
+    sparse.print_parser(sparse.make_parser(grammar), sys.stdout)
     raise
-
-
-def debug_grammar(grammar):
-  sparse.graphvizify(sparse.make_parser(grammar), sys.stdout)

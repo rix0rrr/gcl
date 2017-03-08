@@ -18,33 +18,33 @@ the_context = ParseContext()
 #----------------------------------------------------------------------
 #  AST NODES
 
-class Result(object):
-  def __init__(self, *args):
-    self.args = args
+def named_coll(klassname):
+  class Result(object):
+    def __init__(self, *args):
+      self.args = args
 
-  def __repr__(self):
-    return 'Result%r' % self.args
+    def __repr__(self):
+      return '%s%r' % (klassname, self.args)
+  return Result
 
 
-def ident(*args): return Result(args)
-
-Var = ident
-List = ident
-inheritNodes = ident
-MemberSchemaNode = ident
-Void = ident
-TupleNode = ident
-TupleMemberNode = ident
-ArgList = ident
-attach_doc_comment = ident
-mkUnOp = ident
-mkBinOps = ident
-Condition = ident
-ListComprehension = ident
-Include = ident
-Literal = ident
-mkApplications = ident
-mkDerefs = ident
+Var = named_coll('Var')
+List = named_coll('List')
+inheritNodes = named_coll('Inherit')
+MemberSchemaNode = named_coll('MemberSchemaNode')
+Void = named_coll('Void')
+TupleNode = named_coll('TupleNode')
+TupleMemberNode = named_coll('TupleMemberNode')
+ArgList = named_coll('ArgList')
+attach_doc_comment = named_coll('AttachDocComment')
+mkUnOp = named_coll('mkUnOp')
+mkBinOps = named_coll('mkBinOps')
+Condition = named_coll('Condition')
+ListComprehension = named_coll('ListComprehension')
+Include = named_coll('Include')
+Literal = named_coll('Literal')
+mkApplications = named_coll('Applications')
+mkDerefs = named_coll('Derefs')
 
 #----------------------------------------------------------------------
 #  PARSING
@@ -119,14 +119,14 @@ def make_grammar(allow_errors):
     optional_schema = P('optional_schema', p.Optional(Q(':') + schema_spec))
 
     expression_value = P('expression_value', Q('=') + expression)
-    member_value = P('member_value', p.Optional(expression_value, default=Void))
+    member_value = P('member_value', p.Optional(expression_value, default=Void()))
     named_member = P('named_member', T('identifier') + optional_schema + member_value, TupleMemberNode)
     documented_member = P('documented_member', p.ZeroOrMore(T('doc_comment')) + named_member, attach_doc_comment)
     tuple_member = P('tuple_member', inherit_member | documented_member)
 
     ErrorAwareTupleNode = functools.partial(TupleNode, allow_errors)
     tuple_members = P('tuple_members', listMembers(';', tuple_member), ErrorAwareTupleNode)
-    tuple = P('tuple', bracketedList('{', '}', ';', tuple_member, allow_missing_close=allow_errors), ErrorAwareTupleNode)
+    tuple = P('tuple', Q('{') + tuple_members + Q('}'), ErrorAwareTupleNode)
 
     # Argument list will live by itself as a atom. Actually, it's a tuple, but we
     # don't call it that because we use that term for something else already :)
@@ -204,19 +204,14 @@ def reads(s, filename, loader, implicit_tuple, allow_errors):
     root = grammar.start_tuple if implicit_tuple else grammar.start
     parser = sparse.make_parser(root)
     import sys
-    sparse.graphvizify(parser, open('grammar.dot', 'w'))
+    sparse.print_parser(parser, sys.stdout)
+    result = sparse.parse_all(parser, tokens)
 
-    parser.feed_all(tokens)
-    parser.assert_finished()
-
-    return parser.parsed_value()[0]
+    return result[0]
   except sparse.ParseError as e:
-    # FIXME: Attach source to ParseError
-    raise
+    raise e.add_context(filename, s)
 
 
 if __name__ == '__main__':
     grammar = make_grammar(allow_errors=False)
     parser = sparse.make_parser(grammar.deref)
-    import sys
-    sparse.graphvizify(parser, sys.stdout)
