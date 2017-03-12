@@ -88,7 +88,7 @@ def bracketedList(t_l, t_r, t_sep, expr, allow_missing_close=False):
   Empty list is possible, as is a trailing separator.
   """
   closer = sparse.Q(t_r) if not allow_missing_close else sparse.Optional(sparse.Q(t_r))
-  return sparse.Q(t_l) + listMembers(t_sep, expr) + closer
+  return sparse.Q(t_l) - listMembers(t_sep, expr) + closer
 
 
 GRAMMAR_CACHE = {}
@@ -111,22 +111,22 @@ def make_grammar(allow_errors):
     list_ = P('list', bracketedList('[', ']', ',', expression), List)
 
     # Tuple
-    inherit_member = P('inherit', Q('inherit') + p.ZeroOrMore(T('identifier')), inheritNodes)
+    inherit_member = P('inherit', Q('inherit') - p.ZeroOrMore(T('identifier')), inheritNodes)
     schema_spec = P('schema_spec',
         p.Optional(T('private').action(lambda _: True), default=False)
         + p.Optional(T('required').action(lambda _: True), default=False)
         + p.Optional(expression), MemberSchemaNode)
-    optional_schema = P('optional_schema', p.Optional(Q(':') + schema_spec))
+    optional_schema = P('optional_schema', p.Optional(Q(':') - schema_spec))
 
-    expression_value = P('expression_value', Q('=') + expression)
+    expression_value = P('expression_value', Q('=') - expression)
     member_value = P('member_value', p.Optional(expression_value, default=Void()))
-    named_member = P('named_member', T('identifier') + optional_schema + member_value, TupleMemberNode)
+    named_member = P('named_member', T('identifier') - optional_schema + member_value, TupleMemberNode)
     documented_member = P('documented_member', p.ZeroOrMore(T('doc_comment')) + named_member, attach_doc_comment)
     tuple_member = P('tuple_member', inherit_member | documented_member)
 
     ErrorAwareTupleNode = functools.partial(TupleNode, allow_errors)
     tuple_members = P('tuple_members', listMembers(';', tuple_member), ErrorAwareTupleNode)
-    tuple = P('tuple', Q('{') + tuple_members + Q('}'), ErrorAwareTupleNode)
+    tuple = P('tuple', Q('{') - tuple_members + Q('}'), ErrorAwareTupleNode)
 
     # Argument list will live by itself as a atom. Actually, it's a tuple, but we
     # don't call it that because we use that term for something else already :)
@@ -134,17 +134,17 @@ def make_grammar(allow_errors):
 
     parenthesized_expr = P('parenthesized_expr', p.parenthesized(expression))
 
-    unary_op = P('unary_op', T('minus') | T('plus'), mkUnOp)
+    unary_op = P('unary_op', T('minus') | T('plus') | T('not'), mkUnOp)
 
-    if_then_else = P('if_then_else', Q('if') + expression + Q('then') + expression + Q('else') + expression, Condition)
+    if_then_else = P('if_then_else', Q('if') - expression + Q('then') - expression + Q('else') - expression, Condition)
 
-    list_comprehension = P('list_comprehension', Q('[') + expression + Q('for') + T('identifier') + Q('in') + expression
+    list_comprehension = P('list_comprehension', Q('[') + expression + Q('for') - T('identifier') - Q('in') - expression
         + p.Optional(Q('if') + expression) + Q(']'), ListComprehension)
 
     # We don't allow space-application here
     # Now our grammar is becoming very dirty and hackish
     deref = p.Forward()
-    include = P('include', Q('include') + deref, Include)
+    include = P('include', Q('include') - deref, Include)
 
     literal = (T('string_literal')
             | T('float_literal')
@@ -167,22 +167,22 @@ def make_grammar(allow_errors):
     # We have two different forms of function application, so they can have 2
     # different precedences. This one: fn(args), which binds stronger than
     # dereferencing (fn(args).attr == (fn(args)).attr)
-    applic1 = P('applic1', atom + p.ZeroOrMore(arg_list), mkApplications)
+    applic1 = P('applic1', atom - p.ZeroOrMore(arg_list), mkApplications)
 
     # Dereferencing of an expression (obj.bar)
-    deref.set((applic1 + p.ZeroOrMore(Q('.') + T('identifier'))).action(mkDerefs))
+    deref.set((applic1 - p.ZeroOrMore(Q('.') - T('identifier'))).action(mkDerefs))
 
     # Binary operators before juxtaposition
     factor = deref
-    term = (factor + p.ZeroOrMore((T('mul_op') | T('in')) + factor)).action(mkBinOps)
-    applicable = (term + p.ZeroOrMore(T('add_op') + term)).action(mkBinOps)
+    term = (factor - p.ZeroOrMore((T('mul_op') | T('in')) - factor)).action(mkBinOps)
+    applicable = (term - p.ZeroOrMore(T('add_op') - term)).action(mkBinOps)
 
     # Juxtaposition
-    juxtaposed = P('juxtaposed', applicable + p.ZeroOrMore(applicable), mkApplications)
+    juxtaposed = P('juxtaposed', applicable - p.ZeroOrMore(applicable), mkApplications)
 
     # Binary operators after juxtaposition
-    compared = P('compared', juxtaposed + p.ZeroOrMore(T('compare_op') + juxtaposed), mkBinOps)
-    expression.set(P('expression', compared + p.ZeroOrMore(T('bool_op') + compared), mkBinOps))
+    compared = P('compared', juxtaposed - p.ZeroOrMore(T('compare_op') - juxtaposed), mkBinOps)
+    expression.set(P('expression', compared - p.ZeroOrMore(T('bool_op') - compared), mkBinOps))
 
     # Two entry points: start at an arbitrary expression, or expect the top-level
     # scope to be a tuple.

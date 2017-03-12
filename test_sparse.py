@@ -169,6 +169,23 @@ class TestParseActionsAndCapture(unittest.TestCase):
 
     grammar_parses(cccab, 'a')
 
+  def test_optional_after_no_backtracking(self):
+    grammar = T('a') - sparse.Optional(T('b')) - T('c')
+
+    grammar_parses(grammar, 'abc')
+    grammar_parses(grammar, 'ac')
+
+  def test_zero_or_more_with_nobacktracking_contents(self):
+    grammar = T('a') + sparse.ZeroOrMore(T('&') - T('b')) + T('c')
+
+    grammar_parses(grammar, 'a&bc')
+    grammar_parses(grammar, 'a&b&bc')
+    grammar_parses(grammar, 'ac')
+
+    with self.assertRaises(sparse.ParseError):
+      grammar_fails(grammar, 'a&c')
+      grammar_fails(grammar, 'a&b&c')
+
 
 class TestTokenizer(unittest.TestCase):
   def test_tokens_are_simplified_correctly(self):

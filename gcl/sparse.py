@@ -244,7 +244,7 @@ class ZeroOrMore(Grammar):
 
 def delimited_list(opener, expr, sep, closer):
   """Delimited list with optional terminating separator."""
-  return opener + Optional(expr + ZeroOrMore(sep + expr) + Optional(sep)) + closer
+  return opener - Optional(expr - ZeroOrMore(sep + expr) + Optional(sep)) + closer
 
 
 def parenthesized(expr):
@@ -289,6 +289,11 @@ def delimitedList(expr, sep):
 #--------------------------------------------------------------------------------
 #  PARSERS
 
+def trace_parser(method):
+  def decorated(self, state):
+    with Trace(self, state):
+      return method(self, state)
+  return decorated
 
 class Parser(object):
   """A processing node, generated from a Grammar."""
@@ -318,13 +323,12 @@ class AtomParser(Parser):
   def prefix_token_types(self):
     return [self.token_type]
 
+  @trace_parser
   def parse(self, state):
     token = state.current_token()
     if token.type != self.token_type:
-#      import pudb; pudb.set_trace()
-      return ParseFailure(token, "Unexpected '%s', expected '%s'" % (token.type, self.token_type), previous=state,
-          can_backtrack=state.allow_backtracking)
-    return state.capture(via_parser=self) if self.capture else state.skip(via_parser=self)
+      return ParseFailure(token, "Unexpected '%s', expected '%s'" % (token.type, self.token_type), can_backtrack=state.allow_backtracking)
+    return state.capture() if self.capture else state.skip()
 
   def show(self):
     return ('AtomParser(%s) [%d]' % (self.token_type, self.counter), [])
@@ -334,6 +338,7 @@ class NullParser(Parser):
   def prefix_token_types(self):
     return [AND_MORE]
 
+  @trace_parser
   def parse(self, state):
     return state
 
@@ -345,6 +350,7 @@ class StopBacktrackingParser(Parser):
   def prefix_token_types(self):
     return [AND_MORE]
 
+  @trace_parser
   def parse(self, state):
     return state.with_backtracking(False)
 
@@ -360,8 +366,9 @@ class PushValueParser(Parser):
   def prefix_token_types(self):
     return [AND_MORE]
 
+  @trace_parser
   def parse(self, state):
-    return state.push_value(self.value, via_parser=self)
+    return state.push_value(self.value)
 
   def show(self):
     return ('PushValueParser [%d]' % self.counter, [])
@@ -381,6 +388,7 @@ class SequenceParser(Parser):
           ret.extend(parser.prefix_token_types())
     return ret
 
+  @trace_parser
   def parse(self, state):
     for parser in self.parsers:
       assert state.is_success()
@@ -409,6 +417,7 @@ class AlternativesParser(Parser):
     # Automatically covers AND_MORE
     return self.jump.keys()
 
+  @trace_parser
   def parse(self, state):
     token = state.current_token()
     parsers = self.jump.get(token.type, [])
@@ -417,8 +426,7 @@ class AlternativesParser(Parser):
         # It MIGHT be acceptable to parse nothing here. Try returning the input state and trying there.
         return state
 
-      return ParseFailure(token, 'Unexpected %s, expected one of %s' % (token.type, ', '.join("'%s'" % t for t in self.prefix_token_types())), previous=state,
-          can_backtrack=state.allow_backtracking)
+      return ParseFailure(token, 'Unexpected %s, expected one of %s' % (token.type, ', '.join("'%s'" % t for t in self.prefix_token_types())), can_backtrack=state.allow_backtracking)
 
     state = state.with_backtracking(True)  # Enable backtracking over our alternatives
 
@@ -448,9 +456,11 @@ class CountParser(Parser):
   def prefix_token_types(self):
     return self.inner.prefix_token_types() + ([AND_MORE] if self.min_count == 0 else [])
 
+  @trace_parser
   def parse(self, state):
     assert state.is_success()
     i = 0
+
 
     # These are required
     while i < self.min_count:
@@ -463,13 +473,16 @@ class CountParser(Parser):
     while i < self.max_count or self.max_count is None:
       assert state.is_success()
 
+      state = state.with_backtracking(True)  # Enable backtracking over our alternatives
       ret = self.inner.parse(state)
 
       # If not a successful parse, we'll assume the missing value and continue
       if ret.is_backtrackble_failure():
         if i == 0 and self.missing_default is not None:
-          return state.push_value(self.missing_default, via_parser=self)
+          return state.push_value(self.missing_default)
         return state
+      if not ret.is_success():
+        return ret
 
       state = ret
       i += 1
@@ -480,9 +493,17 @@ class CountParser(Parser):
     return ('Count(%s..%s) [%d]' % (self.min_count, self.max_count, self.counter), [self.inner])
 
 
-class EndOfFileParser(AtomParser):
-  def __init__(self):
-    super(EndOfFileParser, self).__init__(END_OF_FILE, False)
+class EndOfFileParser(Parser):
+  def prefix_token_types(self):
+    return [END_OF_FILE]
+
+  @trace_parser
+  def parse(self, state):
+    token = state.current_token()
+    if token.type != END_OF_FILE:
+      return ParseFailure(token, "Unexpected '%s', expected end of file" % token.type, can_backtrack=state.allow_backtracking)
+    # Don't advance (otherwise the state becomes unprintable)
+    return state
 
   def show(self):
     return ('EOF [%d]' % self.counter, [])
@@ -497,14 +518,15 @@ class CapturingParser(Parser):
   def prefix_token_types(self):
     return self.inner.prefix_token_types()
 
+  @trace_parser
   def parse(self, state):
-    ret = self.inner.parse(state.with_values([], via_parser=self))
+    ret = self.inner.parse(state.with_values([]))
     if not ret.is_success():
       return ret
 
     # Old values with dispatch result appended, new location
     new_value = self.action(*ret.values)
-    return ret.with_values(state.push_value(new_value, via_parser=self).values, via_parser=self)
+    return ret.with_values(state.push_value(new_value).values)
 
   def show(self):
     return ('Capture [%d]' % self.counter, [self.inner])
@@ -523,6 +545,7 @@ class ForwardParser(Parser):
     assert self.inner is None
     self.inner = inner
 
+  @trace_parser
   def parse(self, state):
     return self.inner.parse(state)
 
@@ -543,46 +566,34 @@ class ParseState(object):
 
 
 class ParseSuccess(ParseState):
-  __slots__ = ('tokens', 'values', 'previous')
+  __slots__ = ('tokens', 'values')
 
-  def __init__(self, tokens, values, previous=None, via_parser=None, allow_backtracking=True):
+  def __init__(self, tokens, values, allow_backtracking=True):
     assert isinstance(values, list)
     self.tokens = tokens
     self.values = values
-    self.previous = previous if TRACE else None
-    self.via_parser = via_parser if TRACE else None
     self.allow_backtracking = allow_backtracking
 
-  def with_values(self, values, via_parser):
-    ret = copy.copy(self)
-    ret.values = values
-    return ret
+    Trace.success(self)
+
+  def with_values(self, values):
+    return ParseSuccess(self.tokens, values, self.allow_backtracking)
 
   def current_token(self):
     return self.tokens.current()
 
-  def capture(self, via_parser):
+  def capture(self):
     token = self.tokens.current()
+    return ParseSuccess(self.tokens.advanced(), self.values + [token.value], self.allow_backtracking)
 
-    ret = copy.copy(self)
-    ret.tokens = self.tokens.advanced()
-    ret.values = self.values + [token.value]
-    return ret
+  def push_value(self, value):
+    return ParseSuccess(self.tokens, self.values + [value], self.allow_backtracking)
 
-  def push_value(self, value, via_parser):
-    ret = copy.copy(self)
-    ret.values = self.values + [value]
-    return ret
-
-  def skip(self, via_parser):
-    ret = copy.copy(self)
-    ret.tokens = self.tokens.advanced()
-    return ret
+  def skip(self):
+    return ParseSuccess(self.tokens.advanced(), self.values, self.allow_backtracking)
 
   def with_backtracking(self, allow_backtracking):
-    ret = copy.copy(self)
-    ret.allow_backtracking = allow_backtracking
-    return ret
+    return ParseSuccess(self.tokens, self.values, allow_backtracking)
 
   def is_success(self):
     return True
@@ -595,19 +606,18 @@ class ParseSuccess(ParseState):
 
 
 class ParseFailure(ParseState):
-  def __init__(self, token, error, previous=None, via_parser=None, can_backtrack=True):
+  def __init__(self, token, error, can_backtrack=True):
     self.token = token
     self.error = error
-    self.previous = previous if TRACE else None
-    self.via_parser = via_parser if TRACE else None
     self.can_backtrack = can_backtrack
+
+    Trace.failure(self)
 
   def is_success(self):
     return False
 
   def stop_backtracking(self):
-    return ParseFailure(self.token, self.error, previous=self.previous, via_parser=self.via_parser,
-        can_backtrack=self.can_backtrack)
+    return ParseFailure(self.token, self.error, can_backtrack=self.can_backtrack)
 
   def is_backtrackble_failure(self):
     return self.can_backtrack
@@ -678,6 +688,34 @@ class LazyList(object):
     return self.reified[i]
 
 
+class Trace(object):
+  indent = 0
+
+  def __init__(self, parser, state):
+    self.parser = parser
+    self.state = state
+
+  def __enter__(self):
+    if TRACE:
+      print '  ' * Trace.indent + '%s  |  %s' % (self.parser.show()[0], self.state.show())
+      Trace.indent += 1
+    return self
+
+  def __exit__(self, value, type, tb):
+    if TRACE:
+      Trace.indent -= 1
+
+  @staticmethod
+  def success(state):
+    if TRACE:
+      print '  ' * Trace.indent + state.show()
+
+  @staticmethod
+  def failure(state):
+    if TRACE:
+      print '  ' * Trace.indent + state.show()
+
+
 def make_parser(grammar):
   return SequenceParser([
     grammar.make_parser(),
@@ -690,18 +728,9 @@ def parse_all(parser, tokens):
 
   state = parser.parse(ParseSuccess(tokens, []))
   if not state.is_success():
-    if TRACE:
-      print_parse_failure(state, sys.stdout)
     raise ParseError(state.token.span, state.error)
 
   return state.values
-
-
-def print_parse_failure(failure, stream):
-  if failure.previous: print_parse_failure(failure.previous, stream)
-  if failure.via_parser:
-    stream.write('    --%s--> \n' % failure.via_parser.show()[0])
-  stream.write('%s\n' % failure.show())
 
 
 def print_parser(parser, stream):
