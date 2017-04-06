@@ -8,58 +8,58 @@ from gcl.sparse import T, ParseError
 class TestCombinators(unittest.TestCase):
   def test_sequence(self):
     grammar = T('a') + T('b') + T('c')
-    grammar_parses(grammar, 'abc')
+    parse_string(grammar, 'abc')
 
     with self.assertRaises(ParseError):
-      grammar_fails(grammar, 'ad')
+      parse_string(grammar, 'ad')
 
   def test_either(self):
     grammar = T('a') | T('b') | T('c')
-    grammar_parses(grammar, 'a')
-    grammar_parses(grammar, 'b')
-    grammar_parses(grammar, 'c')
+    parse_string(grammar, 'a')
+    parse_string(grammar, 'b')
+    parse_string(grammar, 'c')
 
     with self.assertRaises(ParseError):
-      grammar_fails(grammar, 'd')
+      parse_string(grammar, 'd')
 
   def test_either_and_sequence(self):
     long = T('a') + T('b') + T('c')
     short = T('d')
     grammar = long | short
 
-    grammar_parses(grammar, 'abc')
-    grammar_parses(grammar, 'd')
+    parse_string(grammar, 'abc')
+    parse_string(grammar, 'd')
 
     with self.assertRaises(ParseError):
-      grammar_fails(grammar, 'ad')
+      parse_string(grammar, 'ad')
 
   def test_zero_or_more(self):
     grammar = T('b') + sparse.ZeroOrMore(T('a')) + T('b')
-    grammar_parses(grammar, 'bb')
-    grammar_parses(grammar, 'bab')
-    grammar_parses(grammar, 'baab')
+    parse_string(grammar, 'bb')
+    parse_string(grammar, 'bab')
+    parse_string(grammar, 'baab')
 
     with self.assertRaises(ParseError):
-      grammar_fails(grammar, 'baba')
-      grammar_fails(grammar, 'bc')
+      parse_string(grammar, 'baba')
+      parse_string(grammar, 'bc')
 
   def test_incomplete_parse(self):
     grammar = T('a') + T('b') + T('c')
 
     with self.assertRaises(ParseError):
-      grammar_fails(grammar, 'ab')
+      parse_string(grammar, 'ab')
 
-  def test_delimited_list(self):
-    grammar = sparse.delimited_list(T('('), T('a'), T(','), T(')'))
-    grammar_parses(grammar, '()')
-    grammar_parses(grammar, '(a)')
-    grammar_parses(grammar, '(a,)')
-    grammar_parses(grammar, '(a,a)')
-    grammar_parses(grammar, '(a,a,)')
+  def test_braced_list(self):
+    grammar = sparse.braced_list(T('('), T('a'), T(','), T(')'))
+    parse_string(grammar, '()')
+    parse_string(grammar, '(a)')
+    parse_string(grammar, '(a,)')
+    parse_string(grammar, '(a,a)')
+    parse_string(grammar, '(a,a,)')
 
     with self.assertRaises(ParseError):
-      grammar_fails(grammar, '(aa)')
-      grammar_fails(grammar, '(a,,)')
+      parse_string(grammar, '(aa)')
+      parse_string(grammar, '(a,,)')
 
   def test_forward(self):
     # Test recursive grammars
@@ -67,13 +67,13 @@ class TestCombinators(unittest.TestCase):
     nested = T('(') + expr + T(')')
     expr.set(nested | T('a'))
 
-    grammar_parses(expr, 'a')
-    grammar_parses(expr, '(a)')
-    grammar_parses(expr, '((a))')
+    parse_string(expr, 'a')
+    parse_string(expr, '(a)')
+    parse_string(expr, '((a))')
 
     with self.assertRaises(ParseError):
-      grammar_fails(expr, '(a))')
-      grammar_fails(expr, '((a)')
+      parse_string(expr, '(a))')
+      parse_string(expr, '((a)')
 
   def test_simplify_sequences(self):
     expr = T('a') + T('b') + T('c')
@@ -93,14 +93,14 @@ class TestCombinators(unittest.TestCase):
 
     # FIXME: Don't know yet how to test this properly...
 
-    grammar_parses(grammar, 'abcd')
-    grammar_parses(grammar, 'abce')
+    parse_string(grammar, 'abcd')
+    parse_string(grammar, 'abce')
 
 
 class TestGrammarHelpers(unittest.TestCase):
   def test_parenthesized(self):
     grammar = sparse.parenthesized(T('a').action(lambda x: x))
-    ret = grammar_parses(grammar, '(a)')
+    ret = parse_string(grammar, '(a)')
     self.assertEquals(['a'], ret)
 
 
@@ -108,26 +108,26 @@ class TestParseActionsAndCapture(unittest.TestCase):
   def test_capture_sequence_returns_result(self):
     grammar = T('a') + T('b') + T('c')
     g = grammar.action(lambda a, b, c: 'toet')
-    ret = grammar_parses(g, 'abc')
+    ret = parse_string(g, 'abc')
     self.assertEquals(['toet'], ret)
 
   def test_suppress_capture(self):
     grammar = T('a') + T('b').suppress() + T('c')
     g = grammar.action(lambda a, c: 'toet')
-    ret = grammar_parses(g, 'abc')
+    ret = parse_string(g, 'abc')
     self.assertEquals(['toet'], ret)
 
   def test_capture_distinguishes_either(self):
     grammar = ((T('a') + T('b')).action(lambda a, b: 'one')
               | T('c').action(lambda c: 'two'))
 
-    self.assertEquals(['one'], grammar_parses(grammar, 'ab'))
-    self.assertEquals(['two'], grammar_parses(grammar, 'c'))
+    self.assertEquals(['one'], parse_string(grammar, 'ab'))
+    self.assertEquals(['two'], parse_string(grammar, 'c'))
 
   def test_optional_default_capture(self):
     grammar = sparse.Optional(T('a'), default='b') + T('c', capture=False)
     sparse.print_parser(grammar.make_parser(), sys.stdout)
-    ret = grammar_parses(grammar, 'c')
+    ret = parse_string(grammar, 'c')
     self.assertEquals(['b'], ret)
 
   def test_two_optionals(self):
@@ -135,27 +135,27 @@ class TestParseActionsAndCapture(unittest.TestCase):
     c = sparse.Optional(T('c'))
     grammar = ab + c + T('d')
 
-    grammar_parses(grammar, 'abcd')
-    grammar_parses(grammar, 'abd')
-    grammar_parses(grammar, 'cd')
-    grammar_parses(grammar, 'd')
+    parse_string(grammar, 'abcd')
+    parse_string(grammar, 'abd')
+    parse_string(grammar, 'cd')
+    parse_string(grammar, 'd')
 
     with self.assertRaises(sparse.ParseError):
-      grammar_fails(grammar, 'abcd')
-      grammar_fails(grammar, 'ad')
+      parse_string(grammar, 'abcd')
+      parse_string(grammar, 'ad')
 
   def test_alts_with_optional(self):
     grammar = (sparse.Optional(T('a')) | sparse.Optional(T('b'))) + T('c')
 
-    grammar_parses(grammar, 'ac')
-    grammar_parses(grammar, 'bc')
-    grammar_parses(grammar, 'c')
+    parse_string(grammar, 'ac')
+    parse_string(grammar, 'bc')
+    parse_string(grammar, 'c')
 
   def test_error_reporting_wo_backtracking(self):
     grammar = sparse.Optional(T('a') - T('b') + T('c')) + T(';')
 
     try:
-      grammar_fails(grammar, 'ab;')  # The error should tell me I forgot the c
+      parse_string(grammar, 'ab;')  # The error should tell me I forgot the c
       self.fail('Should have thrown')
     except sparse.ParseError as e:
       print e
@@ -167,24 +167,56 @@ class TestParseActionsAndCapture(unittest.TestCase):
 
     cccab = (sparse.ZeroOrMore(T('c')) + T('a').action(grab)).action(grab)
 
-    grammar_parses(cccab, 'a')
+    parse_string(cccab, 'a')
 
   def test_optional_after_no_backtracking(self):
     grammar = T('a') - sparse.Optional(T('b')) - T('c')
 
-    grammar_parses(grammar, 'abc')
-    grammar_parses(grammar, 'ac')
+    parse_string(grammar, 'abc')
+    parse_string(grammar, 'ac')
 
   def test_zero_or_more_with_nobacktracking_contents(self):
     grammar = T('a') + sparse.ZeroOrMore(T('&') - T('b')) + T('c')
 
-    grammar_parses(grammar, 'a&bc')
-    grammar_parses(grammar, 'a&b&bc')
-    grammar_parses(grammar, 'ac')
+    parse_string(grammar, 'a&bc')
+    parse_string(grammar, 'a&b&bc')
+    parse_string(grammar, 'ac')
 
     with self.assertRaises(sparse.ParseError):
-      grammar_fails(grammar, 'a&c')
-      grammar_fails(grammar, 'a&b&c')
+      parse_string(grammar, 'a&c')
+      parse_string(grammar, 'a&b&c')
+
+  def test_nobacktracking_plus_zeroormore_breaks_backtracking(self):
+    # FAILS because the - fucks up the backtracking of 'grammar's Alternative
+    inner = T('a') - sparse.ZeroOrMore(T('a'))
+    grammar = (inner + T(',') + inner) | (inner + T('?'))
+
+    sparse.Trace.enable(True)
+
+    with self.assertRaises(sparse.ParseError):
+      parse_string(grammar, 'a?')
+
+    # Introduce a Rule to make this work
+    inner = sparse.Rule() >> T('a') - sparse.ZeroOrMore(T('a'))
+    grammar = (inner + T(',') + inner) | (inner + T('?'))
+    parse_string(grammar, 'a?')
+
+  def test_rule_with_action(self):
+    grammar = sparse.Rule() >> T('a') >> (lambda x: 'hi')
+    out = parse_string(grammar, 'a')
+    self.assertEquals(['hi'], out)
+
+
+  # def test_error_reporting_in_default_optional(self):
+    # inner = sparse.Optional(T('c') | sparse.ZeroOrMore(T('?')) + (T('a') | T('b')), default='')
+    # grammar = T('{') - sparse.delimited_list(inner, T(',')) + T('}')
+
+    # try:
+      # parse_string(grammar, '{c,x}')
+      # self.fail('Should have thrown')
+    # except ParseError as e:
+      # print e
+      # self.fail('boom')
 
 
 class TestTokenizer(unittest.TestCase):
@@ -233,13 +265,9 @@ def ts(str):
    yield sparse.Token(t, t, (i, i+1))
 
 
-def grammar_fails(grammar, tokens):
-  sparse.parse_all(sparse.make_parser(grammar), ts(tokens))
-
-
-def grammar_parses(grammar, tokens):
+def parse_string(grammar, tokens):
   try:
     return sparse.parse_all(sparse.make_parser(grammar), ts(tokens))
-  except ParseError:
-    sparse.print_parser(sparse.make_parser(grammar), sys.stdout)
-    raise
+  except ParseError as e:
+    #sparse.print_parser(sparse.make_parser(grammar), sys.stdout)
+    raise e.add_context('input.gcl', ''.join(str(t) for t in tokens))
