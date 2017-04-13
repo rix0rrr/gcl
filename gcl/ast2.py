@@ -57,11 +57,11 @@ scanner = sparse.Scanner([
     sparse.Syntax('comment', '#$|#[^.].*$'),
     sparse.Syntax('doc_comment', '#\.(.*)$', lambda s: s[2:].strip()),
     # Keywords
-    sparse.Syntax('bool_op', 'and|or'),
-    sparse.Syntax('minus', '-'),
-    sparse.Syntax('not', 'not'),
-    sparse.Syntax('keyword', '|'.join(k for k in keywords)),
-    sparse.Syntax('bool_literal', 'true|false', bool),
+    sparse.Syntax('bool_op', r'\band\b|\bor\b'),
+    sparse.Syntax('minus', r'-(?!\d)'),
+    sparse.Syntax('not', r'\bnot\b'),
+    sparse.Syntax('keyword', '|'.join(r'\b' + k + r'\b' for k in keywords)),
+    sparse.Syntax('bool_literal', r'\btrue\b|\bfalse\b', bool),
     # Identifiers (must come after keywords for matching priority)
     sparse.Syntax('identifier', sparse.quoted_string_regex('`'), sparse.quoted_string_process),
     sparse.Syntax('identifier', r'[a-zA-Z_]([a-zA-Z0-9_:-]*[a-zA-Z0-9_])?'),
