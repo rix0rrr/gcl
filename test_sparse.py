@@ -1,3 +1,4 @@
+import re
 import sys
 import unittest
 
@@ -200,6 +201,20 @@ class TestParseActionsAndCapture(unittest.TestCase):
     inner = sparse.Rule() >> T('a') - sparse.ZeroOrMore(T('a'))
     grammar = (inner + T(',') + inner) | (inner + T('?'))
     parse_string(grammar, 'a?')
+
+  def test_report_failure_in_wrong_place(self):
+    """Problem I actually ran into with optionals, where the error is reported in the wrong place."""
+    num        = sparse.Rule() >> T('1') | T('2')
+    expression = sparse.Rule() >> num - sparse.ZeroOrMore(T('+') - num)
+    schema     = sparse.Rule() >> T(':') - T('y')
+    value      = sparse.Rule() >> T('=') - expression
+    rule       = sparse.Rule() >> T('x') - sparse.Optional(schema) + sparse.Optional(value, 5)
+
+    try:
+      parse_string(rule, 'x=1+3')
+    except sparse.ParseError as e:
+      print(str(e))
+      assert "Unexpected '3'" in str(e)
 
   def test_rule_with_action(self):
     grammar = sparse.Rule() >> T('a') >> (lambda x: 'hi')

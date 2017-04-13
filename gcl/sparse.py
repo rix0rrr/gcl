@@ -361,7 +361,7 @@ class AtomParser(Parser):
   def parse(self, state):
     token = state.current_token()
     if token.type != self.token_type:
-      return ParseFailure(token, "Unexpected '%s', expected '%s'" % (token.type, self.token_type), can_backtrack=state.allow_backtracking)
+      return state.make_failure(token, "Unexpected '%s', expected '%s'" % (token.type, self.token_type), can_backtrack=state.allow_backtracking)
     return state.capture() if self.capture else state.skip()
 
   def caption(self):
@@ -427,7 +427,6 @@ class SequenceParser(Parser):
     for parser in self.parsers:
       assert state.is_success()
       state = parser.parse(state)
-      print 'x',state
       if not state.is_success():
         break
     return state
@@ -464,7 +463,7 @@ class AlternativesParser(Parser):
         # It MIGHT be acceptable to parse nothing here. Try returning the input state and trying there.
         return state
 
-      return ParseFailure(token, 'Unexpected %s, expected one of %s' % (token.type, ', '.join("'%s'" % t for t in self.prefix_token_types())), can_backtrack=state.allow_backtracking)
+      return state.make_failure(token, "Unexpected '%s', expected one of %s" % (token.type, ', '.join("'%s'" % t for t in self.prefix_token_types())), can_backtrack=state.allow_backtracking)
 
     errors = []
     for parser in parsers:
@@ -498,7 +497,8 @@ class OptionalParser(Parser):
   def parse(self, state):
     ret = self.inner.parse(state.with_backtracking(True))
     if ret.is_backtrackable_failure():
-      return state.push_value(self.missing_default) if self.missing_default is not None else state
+      # Attach the failure to the successful parse
+      return (state.push_value(self.missing_default) if self.missing_default is not None else state).with_failure(ret)
     return ret
 
   def children(self):
@@ -566,7 +566,7 @@ class EndOfFileParser(Parser):
   def parse(self, state):
     token = state.current_token()
     if token.type != END_OF_FILE:
-      return ParseFailure(token, "Unexpected '%s', expected end of file" % token.type, can_backtrack=state.allow_backtracking)
+      return state.make_failure(token, "Unexpected '%s', expected end of file" % token.type, can_backtrack=state.allow_backtracking)
     # Don't advance (otherwise the state becomes unprintable)
     return state
 
@@ -662,32 +662,37 @@ class ParseState(object):
 class ParseSuccess(ParseState):
   __slots__ = ('tokens', 'values')
 
-  def __init__(self, tokens, values, allow_backtracking=True):
+  def __init__(self, tokens, values, allow_backtracking=True, furthest_failure=None):
     assert isinstance(values, list)
     self.tokens = tokens
     self.values = values
     self.allow_backtracking = allow_backtracking
+    self.furthest_failure = furthest_failure
 
     Trace.success(self)
 
   def with_values(self, values):
-    return ParseSuccess(self.tokens, values, self.allow_backtracking)
+    return ParseSuccess(self.tokens, values, self.allow_backtracking, self.furthest_failure)
 
   def current_token(self):
     return self.tokens.current()
 
   def capture(self):
     token = self.tokens.current()
-    return ParseSuccess(self.tokens.advanced(), self.values + [token.value], self.allow_backtracking)
+    return ParseSuccess(self.tokens.advanced(), self.values + [token.value], self.allow_backtracking, self.furthest_failure)
 
   def push_value(self, value):
-    return ParseSuccess(self.tokens, self.values + [value], self.allow_backtracking)
+    return ParseSuccess(self.tokens, self.values + [value], self.allow_backtracking, self.furthest_failure)
 
   def skip(self):
-    return ParseSuccess(self.tokens.advanced(), self.values, self.allow_backtracking)
+    return ParseSuccess(self.tokens.advanced(), self.values, self.allow_backtracking, self.furthest_failure)
 
   def with_backtracking(self, allow_backtracking):
-    return ParseSuccess(self.tokens, self.values, allow_backtracking)
+    return ParseSuccess(self.tokens, self.values, allow_backtracking, self.furthest_failure)
+
+  def with_failure(self, furthest_failure):
+    assert isinstance(furthest_failure, ParseFailure)
+    return ParseSuccess(self.tokens, self.values, self.allow_backtracking, furthest_failure)
 
   def is_success(self):
     return True
@@ -695,8 +700,23 @@ class ParseSuccess(ParseState):
   def is_backtrackable_failure(self):
     return False
 
+  def absorb_failure(self, state):
+    if isinstance(state, ParseSuccess):
+      return self
+    assert isinstance(state, ParseFailure)
+    if self.furthest_failure is not None and self.furthest_failure.token.span > state.token.span:
+      return self
+    return self.with_failure(state)
+
   def show(self):
     return '%s%s' % (self.tokens.show(), ' (b)' if self.allow_backtracking else '')
+
+  def make_failure(self, *args, **kwargs):
+    """Return the farthest error between the one on this success state and a new one."""
+    fresh = ParseFailure(*args, **kwargs)
+    if not self.furthest_failure:
+      return fresh
+    return self.furthest_failure.furthest(fresh)
 
 
 class ParseFailure(ParseState):
@@ -716,8 +736,14 @@ class ParseFailure(ParseState):
   def with_backtracking(self, can_backtrack):
     return ParseFailure(self.token, self.error, can_backtrack=can_backtrack)
 
+  def furthest(self, other):
+    if self.token.span > other.token.span:
+      return self
+    else:
+      return other
+
   def show(self):
-    return '%s: %s' % (self.token, self.error)
+    return '%s: %s%s' % (self.token, self.error, ' (b)' if self.can_backtrack else '')
 
   def __repr__(self):
     return self.show()
@@ -793,7 +819,7 @@ class Trace(object):
 
   def __enter__(self):
     if Trace.enabled and (not Trace.names_only or self.parser.name):
-      print '  ' * Trace.indent + '%s  |  %s' % (self.parser.show()[0], self.state.show())
+      print('  ' * Trace.indent + '%s  |  %s' % (self.parser.show()[0], self.state.show()))
       Trace.indent += 1
     return self
 
@@ -809,7 +835,7 @@ class Trace(object):
   @staticmethod
   def report(message):
     if Trace.enabled:
-      print '  ' * Trace.indent + message
+      print('  ' * Trace.indent + message)
 
   @staticmethod
   def success(state):
@@ -820,7 +846,7 @@ class Trace(object):
   @staticmethod
   def failure(state):
     if Trace.enabled:
-      print '  ' * Trace.indent + '!!! %s' % state.show()
+      print('  ' * Trace.indent + '!!! %s' % state.show())
 
 
 def make_parser(grammar):
@@ -848,7 +874,7 @@ def print_parser(parser, stream):
     caption, children = top.show()
     prefix = '|   ' * max(0, depth - 1) + ('|---' if depth > 0 else '')
     suffix = ' (**recursion**)' if top in uniques else ''
-    print '%s%s%s' % (prefix, caption, suffix)
+    print('%s%s%s' % (prefix, caption, suffix))
 
     if top not in uniques:
       uniques.add(top)
