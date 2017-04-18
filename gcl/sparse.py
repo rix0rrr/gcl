@@ -317,11 +317,21 @@ class Rule(Grammar):
 #  PARSERS
 
 def trace_parser(method):
-  def decorated(self, state):
-    with Trace(self, state):
-      return method(self, state)
-  return decorated
+  # Because of performance implications, we don't actually return a wrapped method
+  # here. Instead, we'll put an attribute on the method and replace the methods
+  # later on when and if tracing is actually enabled.
+  method.can_trace = True
+  return method
 
+
+ALL_PARSER_CLASSES = []
+
+def parser_class(cls):
+  ALL_PARSER_CLASSES.append(cls)
+  return cls
+
+
+@parser_class
 class Parser(object):
   """A processing node, generated from a Grammar."""
   counter = 0
@@ -348,6 +358,7 @@ class Parser(object):
     return (name, self.children())
 
 
+@parser_class
 class AtomParser(Parser):
   def __init__(self, token_type, capture, name):
     Parser.__init__(self, name)
@@ -368,6 +379,7 @@ class AtomParser(Parser):
     return 'AtomParser(%s) [%d]' % (self.token_type, self.counter)
 
 
+@parser_class
 class NullParser(Parser):
   def prefix_token_types(self):
     return [AND_MORE]
@@ -380,6 +392,7 @@ class NullParser(Parser):
     return 'NullParser [%d]' % self.counter
 
 
+@parser_class
 class StopBacktrackingParser(Parser):
   def prefix_token_types(self):
     return [AND_MORE]
@@ -392,6 +405,7 @@ class StopBacktrackingParser(Parser):
     return 'StopBacktrackingParser [%d]' % self.counter
 
 
+@parser_class
 class PushValueParser(Parser):
   def __init__(self, value, name):
     Parser.__init__(self, name)
@@ -408,6 +422,7 @@ class PushValueParser(Parser):
     return 'PushValueParser [%d]' % self.counter
 
 
+@parser_class
 class SequenceParser(Parser):
   def __init__(self, parsers, name):
     Parser.__init__(self, name)
@@ -424,11 +439,15 @@ class SequenceParser(Parser):
 
   @trace_parser
   def parse(self, state):
+    can_backtrack = True   # Local variable for speeds
     for parser in self.parsers:
       assert state.is_success()
-      state = parser.parse(state)
-      if not state.is_success():
-        break
+      if isinstance(parser, StopBacktrackingParser):
+        can_backtrack = False
+      else:
+        state = parser.parse(state)
+        if not state.is_success():
+          return state.with_backtracking(can_backtrack)
     return state
 
   def children(self):
@@ -438,6 +457,7 @@ class SequenceParser(Parser):
     return 'SequenceParser [%d]' % self.counter
 
 
+@parser_class
 class AlternativesParser(Parser):
   def __init__(self, parsers, name):
     Parser.__init__(self, name)
@@ -484,6 +504,7 @@ class AlternativesParser(Parser):
     return 'Alternatives [%d]' % self.counter
 
 
+@parser_class
 class OptionalParser(Parser):
   def __init__(self, inner, name, missing_default=None):
     Parser.__init__(self, name)
@@ -508,6 +529,7 @@ class OptionalParser(Parser):
     return 'Optional [%d]' % (self.counter)
 
 
+@parser_class
 class CountParser(Parser):
   def __init__(self, inner, min_count, max_count, name, missing_default=None):
     Parser.__init__(self, name)
@@ -558,6 +580,7 @@ class CountParser(Parser):
     return 'Count(%s..%s) [%d]' % (self.min_count, self.max_count, self.counter)
 
 
+@parser_class
 class EndOfFileParser(Parser):
   def prefix_token_types(self):
     return [END_OF_FILE]
@@ -574,6 +597,7 @@ class EndOfFileParser(Parser):
     return 'EOF [%d]' % self.counter
 
 
+@parser_class
 class CapturingParser(Parser):
   def __init__(self, inner, action, name):
     Parser.__init__(self, name)
@@ -591,9 +615,10 @@ class CapturingParser(Parser):
 
     # Old values with dispatch result appended, new location
     new_value = self.action(*ret.values)
-    Trace.report('Captured: %r' % new_value)
+    if Trace.enabled:
+      Trace.report('Captured: %r', new_value)
 
-    return ret.with_values(state.push_value(new_value).values)
+    return ret.with_values(state.values + [new_value])
 
   def children(self):
     return [self.inner]
@@ -602,6 +627,7 @@ class CapturingParser(Parser):
     return 'Capture [%d]' % self.counter
 
 
+@parser_class
 class ForwardParser(Parser):
   def __init__(self, name):
     Parser.__init__(self, name)
@@ -626,6 +652,7 @@ class ForwardParser(Parser):
     return 'Forward [%d]' % self.counter
 
 
+@parser_class
 class BacktrackingScopeParser(Parser):
   def __init__(self, inner, name):
     Parser.__init__(self, name)
@@ -637,8 +664,10 @@ class BacktrackingScopeParser(Parser):
   @trace_parser
   def parse(self, state):
     # Return whatever the inner parser produces, but reset the backtracking state
-    # to whatever it was coming into this parser.
-    return self.inner.parse(state).with_backtracking(state.allow_backtracking)
+    # to whatever it was coming into this parser. Doesn't need a new object creation.
+    ret = self.inner.parse(state)
+    ret.can_backtrack = state.allow_backtracking
+    return ret
 
   def children(self):
     return [self.inner]
@@ -659,8 +688,10 @@ class ParseState(object):
     raise NotImplementedError("Oei")
 
 
+CALLS = collections.Counter()
+
 class ParseSuccess(ParseState):
-  __slots__ = ('tokens', 'values')
+  __slots__ = ('tokens', 'values', 'allow_backtracking', 'furthest_failure')
 
   def __init__(self, tokens, values, allow_backtracking=True, furthest_failure=None):
     assert isinstance(values, list)
@@ -669,7 +700,13 @@ class ParseSuccess(ParseState):
     self.allow_backtracking = allow_backtracking
     self.furthest_failure = furthest_failure
 
-    Trace.success(self)
+    import traceback
+    stack = traceback.extract_stack()
+    callers_linenos = tuple(['%s:%s' % (s[1], s[3]) for s in stack[-5:-1]])
+    CALLS.update([callers_linenos])
+
+    if Trace.enabled:
+      Trace.success(self)
 
   def with_values(self, values):
     return ParseSuccess(self.tokens, values, self.allow_backtracking, self.furthest_failure)
@@ -725,7 +762,8 @@ class ParseFailure(ParseState):
     self.error = error
     self.can_backtrack = can_backtrack
 
-    Trace.failure(self)
+    if Trace.enabled:
+      Trace.failure(self)
 
   def is_success(self):
     return False
@@ -809,7 +847,7 @@ class LazyList(object):
 
 
 class Trace(object):
-  indent = 0
+  trace_stack = []
   enabled = False
   names_only = False
 
@@ -819,23 +857,36 @@ class Trace(object):
 
   def __enter__(self):
     if Trace.enabled and (not Trace.names_only or self.parser.name):
-      print('  ' * Trace.indent + '%s  |  %s' % (self.parser.show()[0], self.state.show()))
-      Trace.indent += 1
+      print('  ' * len(Trace.trace_stack) + '%s  |  %s' % (self.parser.show()[0], self.state.show()))
+      Trace.trace_stack.append(self)
     return self
 
   def __exit__(self, value, type, tb):
     if Trace.enabled and (not Trace.names_only or self.parser.name):
-      Trace.indent -= 1
+      Trace.trace_stack.pop()
 
   @staticmethod
   def enable(enabled, names_only=False):
+    """Enable parse tree tracing.
+
+    We replace the parsing methods that can be traced when tracing is enabled,
+    so that normal operation comes with minimal performance penalty.
+    """
     Trace.enabled = enabled
     Trace.names_only = names_only
 
+    import inspect
+    for klass in ALL_PARSER_CLASSES:
+      for name, method in inspect.getmembers(klass, predicate=inspect.ismethod):
+        if enabled and getattr(method, 'can_trace', False):
+          klass.name = make_tracing_method(method)
+        elif not enabled and getattr(method, 'original_method', None):
+          klass.name = method.original_method
+
   @staticmethod
-  def report(message):
+  def report(message, *args):
     if Trace.enabled:
-      print('  ' * Trace.indent + message)
+      print('  ' * len(Trace.trace_stack) + (message % args))
 
   @staticmethod
   def success(state):
@@ -846,7 +897,18 @@ class Trace(object):
   @staticmethod
   def failure(state):
     if Trace.enabled:
-      print('  ' * Trace.indent + '!!! %s' % state.show())
+      print('  ' * len(Trace.trace_stack) + '!!! %s' % state.show())
+
+
+def make_tracing_method(method):
+  def decorated(self, state):
+    if Trace.enabled:
+      with Trace(self, state):
+        return method(self, state)
+    else:
+      return method(self, state)
+  decorated.original_method = method
+  return decorated
 
 
 def make_parser(grammar):

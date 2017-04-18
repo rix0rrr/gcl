@@ -204,8 +204,6 @@ def reads(s, filename, loader, implicit_tuple, allow_errors):
     grammar = make_grammar(allow_errors=allow_errors)
     root = grammar.start_tuple if implicit_tuple else grammar.start
     parser = sparse.make_parser(root)
-    import sys
-    sparse.print_parser(parser, sys.stdout)
     result = sparse.parse_all(parser, tokens)
 
     return result[0]
