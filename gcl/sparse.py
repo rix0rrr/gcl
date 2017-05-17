@@ -399,7 +399,8 @@ class StopBacktrackingParser(Parser):
 
   @trace_parser
   def parse(self, state):
-    return state.with_backtracking(False)
+    state.allow_backtracking = False
+    return state
 
   def caption(self):
     return 'StopBacktrackingParser [%d]' % self.counter
@@ -439,15 +440,11 @@ class SequenceParser(Parser):
 
   @trace_parser
   def parse(self, state):
-    can_backtrack = True   # Local variable for speeds
     for parser in self.parsers:
       assert state.is_success()
-      if isinstance(parser, StopBacktrackingParser):
-        can_backtrack = False
-      else:
-        state = parser.parse(state)
-        if not state.is_success():
-          return state.with_backtracking(can_backtrack)
+      state = parser.parse(state)
+      if not state.is_success():
+        break
     return state
 
   def children(self):
@@ -488,7 +485,8 @@ class AlternativesParser(Parser):
     errors = []
     for parser in parsers:
       # Enable backtracking over our alternatives
-      ret = parser.parse(state.with_backtracking(True))
+      state.allow_backtracking = True
+      ret = parser.parse(state)
       if not ret.is_backtrackable_failure():  # Either success or not backtrackable
         return ret
       errors.append(ret)
@@ -516,7 +514,8 @@ class OptionalParser(Parser):
 
   @trace_parser
   def parse(self, state):
-    ret = self.inner.parse(state.with_backtracking(True))
+    state.allow_backtracking = True
+    ret = self.inner.parse(state)
     if ret.is_backtrackable_failure():
       # Attach the failure to the successful parse
       return (state.push_value(self.missing_default) if self.missing_default is not None else state).with_failure(ret)
@@ -558,7 +557,8 @@ class CountParser(Parser):
       assert state.is_success()
 
       # Enable backtracking over our alternatives
-      ret = self.inner.parse(state.with_backtracking(True))
+      state.allow_backtracking = True
+      ret = self.inner.parse(state)
 
       # If not a successful parse, we'll assume the missing value and continue
       if ret.is_backtrackable_failure():
@@ -609,16 +609,21 @@ class CapturingParser(Parser):
 
   @trace_parser
   def parse(self, state):
-    ret = self.inner.parse(state.with_values([]))
+    # Creating a copy of the state object happens a lot. It's cheaper
+    # to pass the old one and remember the index we got to.
+    old_value_count = len(state.values)
+
+    ret = self.inner.parse(state)
     if not ret.is_success():
       return ret
 
     # Old values with dispatch result appended, new location
-    new_value = self.action(*ret.values)
+    new_value = self.action(*ret.values[old_value_count:])
     if Trace.enabled:
       Trace.report('Captured: %r', new_value)
 
-    return ret.with_values(state.values + [new_value])
+    ret.values[old_value_count:] = [new_value]
+    return ret
 
   def children(self):
     return [self.inner]
@@ -857,6 +862,7 @@ class Trace(object):
 
   def __enter__(self):
     if Trace.enabled and (not Trace.names_only or self.parser.name):
+      print 'yay'
       print('  ' * len(Trace.trace_stack) + '%s  |  %s' % (self.parser.show()[0], self.state.show()))
       Trace.trace_stack.append(self)
     return self
@@ -902,10 +908,7 @@ class Trace(object):
 
 def make_tracing_method(method):
   def decorated(self, state):
-    if Trace.enabled:
-      with Trace(self, state):
-        return method(self, state)
-    else:
+    with Trace(self, state):
       return method(self, state)
   decorated.original_method = method
   return decorated
