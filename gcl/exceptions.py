@@ -3,12 +3,12 @@ class GCLError(RuntimeError):
 
 
 class ParseError(GCLError):
-  def __init__(self, filename, sourcelocation, error_message):
-    self.filename = filename
-    self.sourcelocation = sourcelocation
+  def __init__(self, span, error_message):
+    assert isinstance(span, Span)
+    self.span = span
     self.error_message = error_message
 
-    nice_message = '%s:%d: %s\n%s\n%s^-- here' % (filename, sourcelocation.lineno, error_message, sourcelocation.line, ' ' * (sourcelocation.col - 1))
+    nice_message = span.annotated_source(error_message)
     super(ParseError, self).__init__(nice_message)
 
 

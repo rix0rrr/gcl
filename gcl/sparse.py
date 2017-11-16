@@ -1,7 +1,7 @@
 # coding=utf-8
 """sparse -- A faster parser combinator library for Python.
 
-Written when we outgrew the performance concerns of pyparsing:
+Written when we outgrew the performance of pyparsing:
 
   - Uses a tokenizer: parses tokens instead of characters.
   - Does not use exceptions to report parse failures.
@@ -15,6 +15,7 @@ from __future__ import unicode_literals
 
 import collections
 import itertools
+import functools
 import copy
 import re
 import sys
@@ -55,12 +56,68 @@ class ParseError(RuntimeError):
 #  TOKENIZER
 
 
+class File(object):
+  __slots__ = ['filename', 'contents']
+
+  def __init__(self, filename, contents):
+    self.filename = filename
+    self.contents = contents
+
+  def __repr__(self):
+    return 'File(%r)' % self.filename
+
+
+class Span(collections.namedtuple('Span', ('begin', 'end', 'file'))):
+  def contains(self, rhs):
+    """Return True if rhs is fully within lhs."""
+    return ((self.file == rhs.file)
+        and (self.begin <= rhs.begin) and (rhs.end <= self.end))
+
+  def line_context(self):
+    """Return the line number and complete line of the current span in the original file.
+
+    Returns:
+      Tuple of (line_nr, line_text, offset_in_line). line_nr is 1-based.
+    """
+    return find_line_context(self.file.contents, self.begin)
+
+  def annotated_source(self, message):
+    """Returns a list of two strings, one with an error message and one with a position indicator right under it."""
+    line_nr, line_text, offset_in_line = self.line_context()
+
+    file_indicator = '%s:%d: ' % (self.file.contents, line_nr)
+    return [file_indicator + line_text,
+            ' ' * len(file_indicator + offset_in_line) + '^^^^ ' + message]
+
+  def __add__(self, rhs):
+    if rhs is empty_span:
+      return self
+
+    if self.file != rhs.file:
+      raise ValueError('Cannot add two Spans from different files')
+    return Span(min(self.begin, rhs.begin), max(self.end, rhs.end), self.file)
+
+  __radd__ = __add__
+
+
+empty_span = object()
+
+
+def all_newlines(s):
+  """Generator that returns all newlines in the given string."""
+  i = s.find('\n', 0)
+  while i != -1:
+    yield i
+    i = s.find('\n', i)
+
+
 class Token(object):
   __slots__ = ('type', 'value', 'span')
 
   def __init__(self, type, value, span):
     self.type = type
     self.value = value
+    assert isinstance(span, Span)  # FIXME: Comment out
     self.span = span
 
   def __repr__(self):
@@ -121,14 +178,15 @@ class Scanner(object):
       span = (match.end(), match.end() + 1)
       raise ParseError(span, 'Unable to match token at %s' % (string[match.end():match.end() + 10] + '...'))
 
-  def tokenize(self, string):
-    for token, match, proc in self.scan(string):
+  def tokenize(self, file):
+    for token, match, proc in self.scan(file.contents):
       if token == 'whitespace' or token == 'comment':
         continue
       if token == 'keyword' or token == 'symbol':
         token = match.group()
       value = proc(match.group()) if proc else match.group()
-      yield Token(token, value, match.span())
+      begin, end = match.span()
+      yield Token(token, value, Span(begin, end, file))
 
 
 #--------------------------------------------------------------------------------
@@ -331,7 +389,6 @@ def parser_class(cls):
   return cls
 
 
-@parser_class
 class Parser(object):
   """A processing node, generated from a Grammar."""
   counter = 0
@@ -441,7 +498,7 @@ class SequenceParser(Parser):
   @trace_parser
   def parse(self, state):
     for parser in self.parsers:
-      assert state.is_success()
+      #assert state.is_success()  # Asserts already have noticeable effect
       state = parser.parse(state)
       if not state.is_success():
         break
@@ -573,7 +630,7 @@ class CountParser(Parser):
 
     return state
 
-  def caption(self):
+  def children(self):
     return [self.inner]
 
   def caption(self):
@@ -705,10 +762,10 @@ class ParseSuccess(ParseState):
     self.allow_backtracking = allow_backtracking
     self.furthest_failure = furthest_failure
 
-    import traceback
-    stack = traceback.extract_stack()
-    callers_linenos = tuple(['%s:%s' % (s[1], s[3]) for s in stack[-5:-1]])
-    CALLS.update([callers_linenos])
+    # import traceback
+    # stack = traceback.extract_stack()
+    # callers_linenos = tuple(['%s:%s' % (s[1], s[3]) for s in stack[-5:-1]])
+    # CALLS.update([callers_linenos])
 
     if Trace.enabled:
       Trace.success(self)
@@ -721,7 +778,7 @@ class ParseSuccess(ParseState):
 
   def capture(self):
     token = self.tokens.current()
-    return ParseSuccess(self.tokens.advanced(), self.values + [token.value], self.allow_backtracking, self.furthest_failure)
+    return ParseSuccess(self.tokens.advanced(), self.values + [token], self.allow_backtracking, self.furthest_failure)
 
   def push_value(self, value):
     return ParseSuccess(self.tokens, self.values + [value], self.allow_backtracking, self.furthest_failure)
@@ -793,26 +850,27 @@ class ParseFailure(ParseState):
 
 
 class TokenStream(object):
-  __slots__ = ('lazy_list', 'i')
+  __slots__ = ('lazy_list', 'i', 'file')
 
-  def __init__(self, lazy_list, i):
+  def __init__(self, lazy_list, i, file):
     self.lazy_list = lazy_list
     self.i = i
+    self.file = file
 
   def current(self):
     tok = self.lazy_list[self.i] if not self.lazy_list.past_end(self.i) else self.make_eof_token(self.i)
-    assert isinstance(tok, Token)
+    #assert isinstance(tok, Token)
     return tok
 
   def make_eof_token(self, i):
-    span = (0, 0)
+    span = Span(0, 0, self.file)
     if i > 0:
       prev = self.lazy_list[i-1]
-      span = (prev.span[1], prev.span[1] + 1)
+      span = Span(prev.span[1], prev.span[1] + 1, self.file)
     return Token(END_OF_FILE, '', span)
 
   def advanced(self):
-    return TokenStream(self.lazy_list, self.i + 1)
+    return TokenStream(self.lazy_list, self.i + 1, self.file)
 
   def show(self):
     return str(self.current())
@@ -855,20 +913,22 @@ class Trace(object):
   trace_stack = []
   enabled = False
   names_only = False
+  parse_failures = collections.Counter()
 
   def __init__(self, parser, state):
     self.parser = parser
     self.state = state
+    self.pushed = False
 
   def __enter__(self):
     if Trace.enabled and (not Trace.names_only or self.parser.name):
-      print 'yay'
-      print('  ' * len(Trace.trace_stack) + '%s  |  %s' % (self.parser.show()[0], self.state.show()))
+      #print('  ' * len(Trace.trace_stack) + '%s  |  %s' % (self.parser.show()[0], self.state.show()))
+      self.pushed = True
       Trace.trace_stack.append(self)
     return self
 
   def __exit__(self, value, type, tb):
-    if Trace.enabled and (not Trace.names_only or self.parser.name):
+    if self.pushed:
       Trace.trace_stack.pop()
 
   @staticmethod
@@ -885,14 +945,15 @@ class Trace(object):
     for klass in ALL_PARSER_CLASSES:
       for name, method in inspect.getmembers(klass, predicate=inspect.ismethod):
         if enabled and getattr(method, 'can_trace', False):
-          klass.name = make_tracing_method(method)
+          setattr(klass, name, make_tracing_method(method))
         elif not enabled and getattr(method, 'original_method', None):
-          klass.name = method.original_method
+          setattr(klass, name, method.original_method)
 
   @staticmethod
   def report(message, *args):
     if Trace.enabled:
-      print('  ' * len(Trace.trace_stack) + (message % args))
+      #print('  ' * len(Trace.trace_stack) + (message % args))
+      pass
 
   @staticmethod
   def success(state):
@@ -904,9 +965,11 @@ class Trace(object):
   def failure(state):
     if Trace.enabled:
       print('  ' * len(Trace.trace_stack) + '!!! %s' % state.show())
+      Trace.parse_failures.update([Trace.trace_stack[-1].parser])
 
 
 def make_tracing_method(method):
+  @functools.wraps(method)
   def decorated(self, state):
     with Trace(self, state):
       return method(self, state)
@@ -921,8 +984,8 @@ def make_parser(grammar):
     ], None)
 
 
-def parse_all(parser, tokens):
-  tokens = TokenStream(LazyList(tokens), 0)
+def parse_all(parser, tokens, filename):
+  tokens = TokenStream(LazyList(tokens), 0, filename)
 
   state = parser.parse(ParseSuccess(tokens, []))
   if not state.is_success():
@@ -939,6 +1002,10 @@ def print_parser(parser, stream):
     caption, children = top.show()
     prefix = '|   ' * max(0, depth - 1) + ('|---' if depth > 0 else '')
     suffix = ' (**recursion**)' if top in uniques else ''
+
+    if Trace.parse_failures[top]:
+      suffix += ' (%d failures)' % Trace.parse_failures[top]
+
     print('%s%s%s' % (prefix, caption, suffix))
 
     if top not in uniques:

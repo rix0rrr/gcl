@@ -8,6 +8,9 @@ logger = logging.getLogger(__name__)
 
 class Thunk(object):
   """An object that is evaluatable in a scope."""
+  def __init__(self):
+    self.ident = obj_ident()
+
   def eval(self, env):
     raise exceptions.EvaluationError('Not implemented')
 
