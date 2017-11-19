@@ -12,13 +12,20 @@ import sparse
 from . import framework
 
 
+DEBUG = False
+
+
 logger = logging.getLogger(__name__)
 
 class ParseContext(object):
   def __init__(self):
-    self.filename = '<from string>'
     self.loader = None
 the_context = ParseContext()
+
+
+def identity(x):
+  return x
+
 
 #----------------------------------------------------------------------
 #  AST NODES
@@ -31,10 +38,9 @@ class AstNode(object):
   - An identity, for cached evaluation.
   - Child nodes which it contains.
   """
-  def __init__(self, *child_nodes):
-    self.child_nodes = child_nodes
-    print self.child_nodes
-    self.span = sum((c.span for c in self.child_nodes), sparse.empty_span)
+  def __init__(self, span, *child_nodes):
+    self.span = span
+    self.child_nodes = filter(None, child_nodes)
     self.returned_by_find_query = True
 
   def find_tokens(self, q, into=None):
@@ -60,9 +66,9 @@ class AstNode(object):
 class Var(framework.Thunk, AstNode):
   """Variable reference."""
 
-  def __init__(self, identifier_token):
+  def __init__(self, span, identifier_token):
     framework.Thunk.__init__(self)
-    AstNode.__init__(self, identifier_token)
+    AstNode.__init__(self, span)
 
     self.ident = framework.obj_ident()
     self.identifier_token = identifier_token
@@ -80,11 +86,9 @@ class Var(framework.Thunk, AstNode):
 
 class List(framework.Thunk, AstNode):
   """List literal."""
-  def __init__(self, *elements):
-    # FIXME: span Demarcation of lists is not correct! We're missing the
-    # suppressed tokens!
+  def __init__(self, span, *elements):
     framework.Thunk.__init__(self)
-    AstNode.__init__(self, *elemenst)
+    AstNode.__init__(self, span, *elements)
 
     self.elements = list(elements)
 
@@ -102,9 +106,9 @@ class ArgList(framework.Thunk, AstNode):
   because pyparsing will automatically concatenate lists, which we don't want
   in this case.
   """
-  def __init__(self, *elements):
+  def __init__(self, span, *elements):
     framework.Thunk.__init__(self)
-    AstNode.__init__(self, *elements)
+    AstNode.__init__(self, span, *elements)
 
     self.elements = elements
 
@@ -123,8 +127,8 @@ class TupleMemberNode(AstNode):
 
   They have a name, a comment, an expression value and an optional schema.
   """
-  def __init__(self, identifier_token, schema_node, value_expression):
-    AstNode.__init__(self, identifier_token, schema_node, value_expression)
+  def __init__(self, span, identifier_token, schema_node, value_expression):
+    AstNode.__init__(self, span, identifier_token, schema_node, value_expression)
 
     self.identifier_token = identifier_token
     self.name             = identifier_token.value
@@ -152,16 +156,16 @@ class TupleNode(framework.Thunk, AstNode):
   When evaluating, the tuple doesn't actually evaluate its children. Instead, we return a (lazy)
   Tuple object that only evaluates the elements when they're requested.
   """
-  def __init__(self, allow_errors, *members):
+  def __init__(self, allow_errors, span, *members):
     framework.Thunk.__init__(self)
-    AstNode.__init__(self, *members)
+    AstNode.__init__(self, span, *members)
 
     # Filter contents down to actual members (ignore UnparseableNodes)
-    members = sorted((m for m in members if is_tuple_member(m)), key=lambda m: m.name)
-    for name, members in itertools.groupby(members, key=lambda m: m.name):
-      members = list(members)  # Reify iterator
-      if len(members) > 1 and not allow_errors:
-        raise exceptions.ParseError(members[1].identifier_token.span,
+    members = list(sorted((m for m in members if is_tuple_member(m)), key=lambda m: m.name))
+    for name, group in itertools.groupby(members, key=lambda m: m.name):
+      group = list(group)  # Reify iterator
+      if len(group) > 1 and not allow_errors:
+        raise exceptions.ParseError(group[1].identifier_token.span,
                                     'Key %s occurs more than once in tuple' % name)
 
     self.members = members
@@ -249,7 +253,7 @@ class Void(framework.Thunk, AstNode):
   """A missing value."""
   def __init__(self):
     framework.Thunk.__init__(self)
-    AstNode.__init__(self)
+    AstNode.__init__(self, sparse.empty_span)
 
     self.void_name = None
 
@@ -266,9 +270,9 @@ class Void(framework.Thunk, AstNode):
 
 class Inherit(framework.BindableThunk, AstNode):
   """Inherit Thunks can be either bound or unbound."""
-  def __init__(self, identifier_token, env=None):
+  def __init__(self, span, identifier_token, env=None):
     framework.BindableThunk.__init__(self)
-    AstNode.__init__(self, identifier_token)
+    AstNode.__init__(self, span, identifier_token)
 
     self.identifier_token = identifier_token
     self.identifier = identifier_token.value
@@ -286,15 +290,15 @@ class Inherit(framework.BindableThunk, AstNode):
     return 'inherit %s' % self.identifier
 
   @staticmethod
-  def make(*tokens):
-    return [TupleMemberNode(token, no_schema, Inherit(token))
-            for token in tokens]
+  def make(span, *tokens):
+    return sparse.Splat([TupleMemberNode(token.span, token, no_schema, Inherit(token.span, token))
+            for token in tokens])
 
 
 class UnOp(framework.Thunk, AstNode):
-  def __init__(self, op_token, right):
+  def __init__(self, span, op_token, right):
     framework.Thunk.__init__(self)
-    AstNode.__init__(self, op_token, right)
+    AstNode.__init__(self, span, op_token, right)
 
     self.op = op_token.value
     self.right = right
@@ -310,18 +314,14 @@ class UnOp(framework.Thunk, AstNode):
   def __repr__(self):
     return '%s%s%r' % (self.op, ' ' if self.op == 'not' else '', self.right)
 
-  @staticmethod
-  def make(*tokens):
-    return UnOp(tokens[0], tokens[1])
-
 
 class BinOp(framework.Thunk, AstNode):
-  def __init__(self, left, op_token, right):
+  def __init__(self, span, left, op_token, right):
     framework.Thunk.__init__(self)
-    AstNode.__init__(self, left, op_token, right)
+    AstNode.__init__(self, span, left, op_token, right)
 
     self.left = left
-    self.op = op.value
+    self.op = op_token.value
     self.right = right
 
     self.returned_by_find_query = False
@@ -337,18 +337,19 @@ class BinOp(framework.Thunk, AstNode):
     return ('%r %s %r' % (self.left, self.op, self.right))
 
   @staticmethod
-  def make(*tokens):
+  def make(_, *tokens):
     tokens = list(tokens)
     while len(tokens) > 1:
-      assert(len(tokens) >= 3)
-      tokens[0:3] = [BinOp(tokens[0], tokens[1], tokens[2])]
+      if DEBUG:
+        assert(len(tokens) >= 3)
+      tokens[0:3] = [BinOp(tokens[0].span + tokens[2].span, tokens[0], tokens[1], tokens[2])]
     return tokens[0]
 
 
 class Condition(framework.Thunk, AstNode):
-  def __init__(self, cond, then, else_):
+  def __init__(self, span, cond, then, else_):
     framework.Thunk.__init__(self)
-    AstNode.__init__(self, cond_, then, else_)
+    AstNode.__init__(self, span, cond, then, else_)
 
     self.cond = cond
     self.then = then
@@ -367,9 +368,9 @@ class Condition(framework.Thunk, AstNode):
 
 
 class ListComprehension(framework.Thunk, AstNode):
-  def __init__(self, expr, var_token, collection, cond=None):
+  def __init__(self, span, expr, var_token, collection, cond=None):
     framework.Thunk.__init__(self)
-    AstNode.__init__(self, expr, var_token, collection, cond)
+    AstNode.__init__(self, span, expr, var_token, collection, cond)
 
     self.expr = expr
     self.var = var_token.value
@@ -389,9 +390,9 @@ class ListComprehension(framework.Thunk, AstNode):
 
 
 class Include(framework.Thunk, AstNode):
-  def __init__(self, file_ref):
+  def __init__(self, span, file_ref):
     framework.Thunk.__init__(self)
-    AstNode.__init__(self, file_ref)
+    AstNode.__init__(self, span, file_ref)
 
     self.file_ref = file_ref
     self.current_file = file_ref.span.file.filename
@@ -404,7 +405,8 @@ class Include(framework.Thunk, AstNode):
                             (self.file_ref, file_ref))
 
     loaded = self.loader(self.current_file, file_ref, env=env.root)
-    assert not isinstance(loaded, framework.Thunk)
+    if DEBUG:
+      assert not isinstance(loaded, framework.Thunk)
     return loaded
 
   def __repr__(self):
@@ -413,11 +415,21 @@ class Include(framework.Thunk, AstNode):
 
 class Literal(framework.Thunk, AstNode):
   """A GCL literal expression."""
-  def __init__(self, value):
-    framework.Thunk.__init__(self)
-    AstNode.__init__(self, value)
 
-    self.value = value
+  PARSERS = {
+      'string_literal': identity,
+      'float_literal': float,
+      'int_literal': int,
+      'bool_literal': lambda x: x == 'true',
+      'null': lambda _: None,
+      }
+
+  def __init__(self, span, token):
+    framework.Thunk.__init__(self)
+    AstNode.__init__(self, span)
+
+    self.token = token
+    self.value = self.PARSERS[token.type](token.value)
 
   def eval(self, env):
     return self.value
@@ -430,9 +442,9 @@ class Literal(framework.Thunk, AstNode):
 
 class Application(framework.Thunk, AstNode):
   """Function application."""
-  def __init__(self, left, right):
+  def __init__(self, span, left, right):
     framework.Thunk.__init__(self)
-    AstNode.__init__(self, value)
+    AstNode.__init__(self, span, left, right)
 
     self.left = left
     self.right = right
@@ -489,7 +501,7 @@ class Application(framework.Thunk, AstNode):
     raise exceptions.EvaluationError("Can't apply %r to argument (%r): integer expected, got %r" % (self.left, self.right, right))
 
   @staticmethod
-  def make(*atoms):
+  def make(_, *atoms):
     """Make a sequence of applications from a list of tokens.
 
     atoms is a list of atoms, which will be handled left-associatively. E.g:
@@ -498,7 +510,7 @@ class Application(framework.Thunk, AstNode):
     """
     atoms = list(atoms)
     while len(atoms) > 1:
-      atoms[0:2] = [Application(atoms[0], atoms[1])]
+      atoms[0:2] = [Application(atoms[0].span + atoms[1].span, atoms[0], atoms[1])]
 
     # Nothing left to apply
     return atoms[0]
@@ -506,9 +518,9 @@ class Application(framework.Thunk, AstNode):
 
 class Deref(framework.Thunk, AstNode):
   """Dereferencing of a dictionary-like object."""
-  def __init__(self, haystack, needle):
+  def __init__(self, span, haystack, needle):
     framework.Thunk.__init__(self)
-    AstNode.__init__(self, haystack, needle)
+    AstNode.__init__(self, span, haystack, needle)
 
     self._haystack = haystack
     self.needle = needle
@@ -531,10 +543,10 @@ class Deref(framework.Thunk, AstNode):
     return '%s.%s' % (self._haystack, self.needle)
 
   @staticmethod
-  def make(*tokens):
+  def make(span, *tokens):
     tokens = list(tokens)
     while len(tokens) > 1:
-      tokens[0:2] = [Deref(tokens[0], tokens[1])]
+      tokens[0:2] = [Deref(tokens[0].span + tokens[1].span, tokens[0], tokens[1])]
     return tokens[0]
 
 
@@ -585,7 +597,7 @@ class NoSchemaNode(framework.Thunk, AstNode):
   """For values without a schema."""
   def __init__(self):
     framework.Thunk.__init__(self)
-    AstNode.__init__(self)
+    AstNode.__init__(self, sparse.empty_span)
 
     self.required = False
     self.private = False
@@ -593,18 +605,11 @@ class NoSchemaNode(framework.Thunk, AstNode):
   def eval(self, env):
     return schema.AnySchema()
 
+  def __repr__(self):
+    return '<no schema>'
+
+
 no_schema = NoSchemaNode()  # Singleton object
-
-
-class AnySchemaExprNode(framework.Thunk, AstNode):
-  def __init__(self):
-    framework.Thunk.__init__(self)
-    AstNode.__init__(self)
-
-  def eval(self, env):
-    return schema.AnySchema()
-
-any_schema_expr = AnySchemaExprNode()
 
 
 class MemberSchemaNode(framework.Thunk, AstNode):
@@ -638,9 +643,9 @@ class MemberSchemaNode(framework.Thunk, AstNode):
 
 
   """
-  def __init__(self, private, required, expr):
+  def __init__(self, span, private, required, expr):
     framework.Thunk.__init__(self)
-    AstNode.__init__(self, expr)
+    AstNode.__init__(self, span, expr)
 
     # FIXME: Private and required are also tokens (or should be)
     self.private = private
@@ -721,6 +726,7 @@ def make_tuple(x):
     return x
   return dict2tuple(x)
 
+
 #----------------------------------------------------------------------
 #  PARSING
 
@@ -766,6 +772,11 @@ def bracketedList(t_l, t_r, t_sep, expr, allow_missing_close=False):
   return sparse.Q(t_l) - listMembers(t_sep, expr) + closer
 
 
+def update_node_span(span, node):
+  node.span = span
+  return node
+
+
 GRAMMAR_CACHE = {}
 def make_grammar(allow_errors):
   """Make the part of the grammar that depends on whether we swallow errors or not."""
@@ -805,7 +816,7 @@ def make_grammar(allow_errors):
 
     ErrorAwareTupleNode = functools.partial(TupleNode, allow_errors)
     tuple_members       = Rule('tuple_members') >> listMembers(';', tuple_member) >> ErrorAwareTupleNode
-    tuple               = Rule('tuple')         >> Q('{') - tuple_members + Q('}') >> ErrorAwareTupleNode
+    tuple               = Rule('tuple')         >> Q('{') - tuple_members + Q('}') >> update_node_span
 
     # Argument list will live by itself as a atom. Actually, it's a tuple, but we
     # don't call it that because we use that term for something else already :)
@@ -813,7 +824,7 @@ def make_grammar(allow_errors):
 
     parenthesized_expr = Rule('parenthesized_expr') >> p.parenthesized(expression)
 
-    unary_op = Rule('unary_op') >> (T('minus') | T('plus') | T('not')) - expression >> UnOp.make
+    unary_op = Rule('unary_op') >> (T('minus') | T('plus') | T('not')) - expression >> UnOp
 
     if_then_else = Rule('if_then_else') >> Q('if') - expression + Q('then') - expression + Q('else') - expression >> Condition
 
@@ -826,7 +837,7 @@ def make_grammar(allow_errors):
             | T('float_literal')
             | T('int_literal')
             | T('bool_literal')
-            | T('null').action(lambda _: None)
+            | T('null')
             ).action(Literal)
 
     atom = Rule('atom') >> (tuple
@@ -871,25 +882,18 @@ def make_grammar(allow_errors):
 def reads(s, filename, loader, implicit_tuple, allow_errors):
   """Load but don't evaluate a GCL expression from a string."""
   try:
-    the_context.filename = filename
     the_context.loader = loader
 
     file = sparse.File(filename, s)
-    tokens = scanner.tokenize(file)
+
+    # The scanner runs as generator but it's *slightly* faster if we eagerly do the work.
+    tokens = list(scanner.tokenize(file))
 
     grammar = make_grammar(allow_errors=allow_errors)
     root = grammar.start_tuple if implicit_tuple else grammar.start
     parser = sparse.make_parser(root)
     result = sparse.parse_all(parser, tokens, file)
 
-    #import sys
-    #sparse.print_parser(parser, sys.stdout)
-
     return result[0]
   except sparse.ParseError as e:
     raise e.add_context(filename, s)
-
-
-if __name__ == '__main__':
-    grammar = make_grammar(allow_errors=False)
-    parser = sparse.make_parser(grammar.deref)
