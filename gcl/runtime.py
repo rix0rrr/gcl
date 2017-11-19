@@ -25,7 +25,7 @@ class Tuple(framework.TupleLike):
     self._ast_node = tuplenode
     self.__parent_env = parent_env
     # This mapping is for backwards compatibility. In principle, the TupleNode owns the members
-    self.__items = {m.name: m.value for m in tuplenode.members}
+    self.__items = {m.name: m.value_expression for m in tuplenode.members}
     self.__env_cache = framework.Cache()  # Env cache so eval caching works more effectively
 
     # This function is only here to break a cyclic dependency on the 'ast' module
@@ -153,17 +153,17 @@ class Tuple(framework.TupleLike):
     if not member_node:
       return schema.AnySchema()
 
-    s = framework.eval(member_node.member_schema, self.env(self))
+    s = framework.eval(member_node.schema_node, self.env(self))
     if not isinstance(s, schema.Schema):
-      raise ValueError('Node %r with schema node %r should evaluate to Schema, got %r' % (member_node, member_node.member_schema, s))
+      raise ValueError('Node %r with schema node %r should evaluate to Schema, got %r' % (member_node, member_node.schema_node, s))
     return s
 
   def get_required_fields(self):
     """Return the names of fields that are required according to the schema."""
-    return [m.name for m in self._ast_node.members if m.member_schema.required]
+    return [m.name for m in self._ast_node.members if m.schema_node.required]
 
   def _keys_and_privacy(self):
-    return {k: self._ast_node.member[k].member_schema.private for k in self.keys()}
+    return {k: self._ast_node.member[k].schema_node.private for k in self.keys()}
 
   def exportable_keys(self):
     """Return a list of keys that are exportable from this tuple."""

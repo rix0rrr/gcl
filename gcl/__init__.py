@@ -9,7 +9,7 @@ import json
 from . import functions
 from . import exceptions
 from . import schema
-from . import ast
+from . import ast2 as ast
 from . import runtime
 from . import util
 from . import framework

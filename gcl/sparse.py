@@ -85,9 +85,9 @@ class Span(collections.namedtuple('Span', ('begin', 'end', 'file'))):
     """Returns a list of two strings, one with an error message and one with a position indicator right under it."""
     line_nr, line_text, offset_in_line = self.line_context()
 
-    file_indicator = '%s:%d: ' % (self.file.contents, line_nr)
+    file_indicator = '%s:%d: ' % (self.file.filename, line_nr)
     return [file_indicator + line_text,
-            ' ' * len(file_indicator + offset_in_line) + '^^^^ ' + message]
+            ' ' * (len(file_indicator) + offset_in_line) + ('^' * min(8, len(self))) + ' ' + message]
 
   def __add__(self, rhs):
     if rhs is empty_span:
@@ -97,6 +97,9 @@ class Span(collections.namedtuple('Span', ('begin', 'end', 'file'))):
       raise ValueError('Cannot add two Spans from different files')
 
     return Span(min(self.begin, rhs.begin), max(self.end, rhs.end), self.file)
+
+  def __len__(self):
+    return self.end - self.begin
 
   def until(self, rhs):
     return Span(self.begin, rhs.end, self.file)
@@ -189,7 +192,7 @@ class Scanner(object):
       rule = self.rules[match.lastindex - 1]
       yield rule.token_type, match, rule.post_processor
 
-    if match.end() < len_string:
+    if match and match.end() < len_string:
       span = (match.end(), match.end() + 1)
       raise ParseError(span, 'Unable to match token at %s' % (string[match.end():match.end() + 10] + '...'))
 
@@ -897,21 +900,11 @@ class TokenStream(object):
     self.file = file
 
   def current(self):
-    i = self.i
-    tok = self.lazy_list[i] if not self.lazy_list.past_end(i) else self.make_eof_token(i)
-    #assert isinstance(tok, Token)
-    return tok
+    return self.lazy_list[self.i]
 
   def previous(self):
     #assert self.i > 0
     return self.lazy_list[self.i - 1]
-
-  def make_eof_token(self, i):
-    span = Span(0, 0, self.file)
-    if i > 0:
-      prev = self.lazy_list[i-1]
-      span = Span(prev.span[1], prev.span[1] + 1, self.file)
-    return Token(END_OF_FILE, '', span)
 
   def advanced(self):
     return TokenStream(self.lazy_list, self.i + 1, self.file)
@@ -1039,15 +1032,25 @@ def make_parser(grammar):
     ], None)
 
 
-def parse_all(parser, tokens, filename):
-  the_list = EagerList(tokens) if isinstance(tokens, list) else LazyList(tokens)
-  tokens = TokenStream(the_list, 0, filename)
+def parse_all(parser, tokens, file):
+  eof_token = make_eof_token(file)
+  if isinstance(tokens, list):
+    tokens.append(eof_token)
+    the_list = EagerList(tokens)
+  else:
+    tokens = itertools.chain(tokens, [eof_token])
+    the_list = LazyList(tokens)
 
+  tokens = TokenStream(the_list, 0, file)
   state = parser.parse(ParseSuccess(tokens, []))
   if not state.is_success:
     raise ParseError(state.token.span, state.error)
 
   return state.values
+
+
+def make_eof_token(file):
+  return Token(END_OF_FILE, '', Span(len(file.contents), len(file.contents), file))
 
 
 def print_parser(parser, stream):

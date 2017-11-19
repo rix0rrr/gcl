@@ -7,8 +7,8 @@ from gcl import exceptions
 import traceback
 
 def parse(s, env=None, implicit_tuple=False, loader=None):
-  return (gcl.reads(s, implicit_tuple=implicit_tuple, loader=loader)
-             .eval(gcl.default_env.extend(env)))
+  ast = gcl.reads(s, implicit_tuple=implicit_tuple, loader=loader)
+  return ast.eval(gcl.default_env.extend(env))
 
 
 def parse_tuple(s, env=None, loader=None):
@@ -166,7 +166,6 @@ class TestTuple(unittest.TestCase):
     obj = parse_tuple('he110-1orld = 3')
     self.assertEquals(3, obj['he110-1orld'])
 
-<<<<<<< HEAD
   def testSelfReference(self):
     obj = parse_tuple('''
       x = 1;

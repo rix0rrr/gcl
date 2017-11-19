@@ -10,6 +10,9 @@ import textwrap
 import sparse
 
 from . import framework
+from . import runtime
+from . import schema
+from . import exceptions
 
 
 DEBUG = False
@@ -450,7 +453,7 @@ class Application(framework.Thunk, AstNode):
     self.right = right
 
   def right_as_list(self):
-    return self.right if isinstance(self.right, ArgList) else ArgList([self.right])
+    return self.right if isinstance(self.right, ArgList) else ArgList(self.right.span, self.right)
 
   def eval_right_as_list(self, env):
     return framework.eval(self.right_as_list(), env)
@@ -484,7 +487,7 @@ class Application(framework.Thunk, AstNode):
   def applyTuple(self, tuple, right, env):
     """Apply a tuple to something else."""
     if len(right) != 1:
-      raise exceptions.EvaluationError('Tuple (%r) can only be applied to one argument, got %r' % (self.left, self.right))
+      raise exceptions.EvaluationError('Tuple (%r) must only be applied to exactly argument, got %r (evaluates to %r)' % (self.left, self.right, right))
     right = right[0]
 
     return tuple(right)
@@ -518,29 +521,29 @@ class Application(framework.Thunk, AstNode):
 
 class Deref(framework.Thunk, AstNode):
   """Dereferencing of a dictionary-like object."""
-  def __init__(self, span, haystack, needle):
+  def __init__(self, span, haystack, needle_token):
     framework.Thunk.__init__(self)
-    AstNode.__init__(self, span, haystack, needle)
+    AstNode.__init__(self, span, haystack, needle_token)
 
     self._haystack = haystack
-    self.needle = needle
+    self.needle_token = needle_token
 
   def _children(self):
-    return [self._haystack, self.needle]
+    return [self._haystack, self.needle_token]
 
   def haystack(self, env):
     return framework.eval(self._haystack, env)
 
   def eval(self, env):
     try:
-      return self.haystack(env)[self.needle.name]
+      return self.haystack(env)[self.needle_token.value]
     except exceptions.EvaluationError as e:
       self.reraise_in_context(e, 'while evaluating \'%r\'' % self)
     except TypeError as e:
-      self.reraise_in_context(e, 'while getting %r from %r' % (self.needle, self._haystack))
+      self.reraise_in_context(e, 'while getting %r from %r' % (self.needle_token, self._haystack))
 
   def __repr__(self):
-    return '%s.%s' % (self._haystack, self.needle)
+    return '%s.%s' % (self._haystack, self.needle_token)
 
   @staticmethod
   def make(span, *tokens):
@@ -727,6 +730,16 @@ def make_tuple(x):
   return dict2tuple(x)
 
 
+class SourceQuery(object):
+  def __init__(self, filename, line, col):
+    self.filename = filename
+    self.line = line
+    self.col = col
+
+  def __repr__(self):
+    return 'SourceQuery(%r, %r, %r)' % (self.filename, self.line, self.col)
+
+
 #----------------------------------------------------------------------
 #  PARSING
 
@@ -742,7 +755,7 @@ scanner = sparse.Scanner([
     sparse.Syntax('minus', r'-(?!\d)'),
     sparse.Syntax('not', r'\bnot\b'),
     sparse.Syntax('keyword', '|'.join(r'\b' + k + r'\b' for k in keywords)),
-    sparse.Syntax('bool_literal', r'\btrue\b|\bfalse\b', bool),
+    sparse.Syntax('bool_literal', r'\btrue\b|\bfalse\b'),
     # Identifiers (must come after keywords for matching priority)
     sparse.Syntax('identifier', sparse.quoted_string_regex('`'), sparse.quoted_string_process),
     sparse.Syntax('identifier', r'[a-zA-Z_]([a-zA-Z0-9_:-]*[a-zA-Z0-9_])?'),
@@ -752,8 +765,8 @@ scanner = sparse.Scanner([
     sparse.Syntax('compare_op', '|'.join(['<=', '>=', '==', '!=', '<', '>'])),
     sparse.Syntax('mul_op', '[*/%]'),
     sparse.Syntax('plus', '\+'),
-    sparse.Syntax('float_literal', r'-?\d+\.\d+', float),
-    sparse.Syntax('int_literal', r'-?\d+', int),
+    sparse.Syntax('float_literal', r'-?\d*\.\d+'),
+    sparse.Syntax('int_literal', r'-?\d+'),
     # Symbols
     sparse.Syntax('symbol', '[' + ''.join('\\' + s for s in '[](){}=,;:.') + ']'),
     ])

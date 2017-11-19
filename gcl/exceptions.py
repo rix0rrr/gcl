@@ -1,10 +1,12 @@
+from . import sparse
+
 class GCLError(RuntimeError):
   pass
 
 
 class ParseError(GCLError):
   def __init__(self, span, error_message):
-    assert isinstance(span, Span)
+    assert isinstance(span, sparse.Span)
     self.span = span
     self.error_message = error_message
 
