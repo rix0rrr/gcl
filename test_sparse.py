@@ -97,30 +97,44 @@ class TestCombinators(unittest.TestCase):
     parse_string(grammar, 'abcd')
     parse_string(grammar, 'abce')
 
+  def test_oneormore_and_terminator(self):
+    # sparse.delimited_list(expr, sparse.Q(t_sep))
+    grammar = T('a') - sparse.OneOrMore(T('b')) - T(';')
+
+    parse_string(grammar, 'ab;')
+
+  def test_listmember_and_alternatives_notmatching(self):
+    alts = (T('a') - T('=') - T('1')
+        | T('b') - T('=') - T('2'))
+    grammar = T('{') - sparse.delimited_list(alts, T(';')) - T('}')
+
+    with self.assertRaises(sparse.ParseError):
+      parse_string(grammar, '{nope}')
+
 
 class TestGrammarHelpers(unittest.TestCase):
   def test_parenthesized(self):
-    grammar = sparse.parenthesized(T('a').action(lambda x: x))
+    grammar = sparse.parenthesized(T('a').action(lambda _, x: x))
     ret = parse_string(grammar, '(a)')
-    self.assertEquals(['a'], ret)
+    self.assertEquals(['a'], values(ret))
 
 
 class TestParseActionsAndCapture(unittest.TestCase):
   def test_capture_sequence_returns_result(self):
     grammar = T('a') + T('b') + T('c')
-    g = grammar.action(lambda a, b, c: 'toet')
+    g = grammar.action(lambda _, a, b, c: 'toet')
     ret = parse_string(g, 'abc')
     self.assertEquals(['toet'], ret)
 
   def test_suppress_capture(self):
     grammar = T('a') + T('b').suppress() + T('c')
-    g = grammar.action(lambda a, c: 'toet')
+    g = grammar.action(lambda _, a, c: 'toet')
     ret = parse_string(g, 'abc')
     self.assertEquals(['toet'], ret)
 
   def test_capture_distinguishes_either(self):
-    grammar = ((T('a') + T('b')).action(lambda a, b: 'one')
-              | T('c').action(lambda c: 'two'))
+    grammar = ((T('a') + T('b')).action(lambda _, a, b: 'one')
+              | T('c').action(lambda _, c: 'two'))
 
     self.assertEquals(['one'], parse_string(grammar, 'ab'))
     self.assertEquals(['two'], parse_string(grammar, 'c'))
@@ -159,7 +173,7 @@ class TestParseActionsAndCapture(unittest.TestCase):
       parse_string(grammar, 'ab;')  # The error should tell me I forgot the c
       self.fail('Should have thrown')
     except sparse.ParseError as e:
-      print e
+      print(e)
       self.assertTrue('\'c\'' in str(e))
 
   def test_more_complex_capture(self):
@@ -176,6 +190,13 @@ class TestParseActionsAndCapture(unittest.TestCase):
     parse_string(grammar, 'abc')
     parse_string(grammar, 'ac')
 
+  def test_optional_inside_backtracking(self):
+    grammar = T('a') - sparse.Optional(T('b') - T('c'))
+
+    parse_string(grammar, 'abc')
+    with self.assertRaises(sparse.ParseError):
+      parse_string(grammar, 'abd')
+
   def test_zero_or_more_with_nobacktracking_contents(self):
     grammar = T('a') + sparse.ZeroOrMore(T('&') - T('b')) + T('c')
 
@@ -188,18 +209,19 @@ class TestParseActionsAndCapture(unittest.TestCase):
       parse_string(grammar, 'a&b&c')
 
   def test_nobacktracking_plus_zeroormore_breaks_backtracking(self):
-    # FAILS because the - fucks up the backtracking of 'grammar's Alternative
     inner = T('a') - sparse.ZeroOrMore(T('a'))
+
     grammar = (inner + T(',') + inner) | (inner + T('?'))
 
-    sparse.Trace.enable(True)
+    sparse.print_parser(grammar.make_parser(), sys.stdout)
 
     with self.assertRaises(sparse.ParseError):
       parse_string(grammar, 'a?')
 
-    # Introduce a Rule to make this work
-    inner = sparse.Rule() >> T('a') - sparse.ZeroOrMore(T('a'))
+  def test_zeroormore_within_alternatives(self):
+    inner = T('a') + sparse.ZeroOrMore(T('a'))
     grammar = (inner + T(',') + inner) | (inner + T('?'))
+
     parse_string(grammar, 'a?')
 
   def test_report_failure_in_wrong_place(self):
@@ -216,8 +238,17 @@ class TestParseActionsAndCapture(unittest.TestCase):
       print(str(e))
       assert "Unexpected '3'" in str(e)
 
+  def test_report_longest_failure(self):
+    grammar = (T('a') + T('b') + T('c') + T('d')
+            | T('a') + T('d'))
+
+    try:
+      parse_string(grammar, 'abd')
+    except sparse.ParseError as e:
+      assert "expected 'c'" in str(e)
+
   def test_rule_with_action(self):
-    grammar = sparse.Rule() >> T('a') >> (lambda x: 'hi')
+    grammar = sparse.Rule() >> T('a') >> (lambda _, x: 'hi')
     out = parse_string(grammar, 'a')
     self.assertEquals(['hi'], out)
 
@@ -240,7 +271,7 @@ class TestTokenizer(unittest.TestCase):
       sparse.DOUBLE_QUOTED_STRING
       ])
 
-    tokens = list(scanner.tokenize(r'"Can we \" scan it"'))
+    tokens = tokenize(scanner, r'"Can we \" scan it"')
     self.assertEquals('dq_string', tokens[0].type)
     self.assertEquals('Can we \" scan it', tokens[0].value)
 
@@ -250,19 +281,25 @@ class TestTokenizer(unittest.TestCase):
       sparse.INTEGER
       ])
 
-    tokens = list(scanner.tokenize('1 2 4 8 15 16 23'))
-    numbers = [t.value for t in tokens]
+    tokens = tokenize(scanner, '1 2 4 8 15 16 23')
+    numbers = [t.value for t in tokens if t.type != sparse.END_OF_FILE]
     self.assertEquals([1, 2, 4, 8, 15, 16, 23], numbers)
+
+
+def tokenize(scanner, s):
+  f = sparse.File('<input>', s)
+  return list(scanner.tokenize(f))
+
 
 
 class TestErrorReporting(unittest.TestCase):
   def test_find_line(self):
-    self.assertEquals((0, 'ab', 0), sparse.find_line_context(*line_with_marker('|ab\ncd\nef')))
-    self.assertEquals((0, 'ab', 2), sparse.find_line_context(*line_with_marker('ab|\ncd\nef')))
-    self.assertEquals((1, 'cd', 0), sparse.find_line_context(*line_with_marker('ab\n|cd\nef')))
-    self.assertEquals((1, 'cd', 1), sparse.find_line_context(*line_with_marker('ab\nc|d\nef')))
-    self.assertEquals((1, 'cd', 2), sparse.find_line_context(*line_with_marker('ab\ncd|\nef')))
-    self.assertEquals((2, 'ef', 2), sparse.find_line_context(*line_with_marker('ab\ncd\nef|')))
+    self.assertEquals((1, 'ab', 0), sparse.find_line_context(*line_with_marker('|ab\ncd\nef')))
+    self.assertEquals((1, 'ab', 2), sparse.find_line_context(*line_with_marker('ab|\ncd\nef')))
+    self.assertEquals((2, 'cd', 0), sparse.find_line_context(*line_with_marker('ab\n|cd\nef')))
+    self.assertEquals((2, 'cd', 1), sparse.find_line_context(*line_with_marker('ab\nc|d\nef')))
+    self.assertEquals((2, 'cd', 2), sparse.find_line_context(*line_with_marker('ab\ncd|\nef')))
+    self.assertEquals((3, 'ef', 2), sparse.find_line_context(*line_with_marker('ab\ncd\nef|')))
 
 
 def line_with_marker(text):
@@ -275,14 +312,26 @@ class Box(object):
     self.thing = thing
 
 
-def ts(str):
-  for i, t in enumerate(str):
-   yield sparse.Token(t, t, (i, i+1))
+def ts(file):
+  scanner = sparse.Scanner([
+      sparse.Syntax('character', '.'),
+      ])
+  # Use the value as type for every token
+  for t in scanner.tokenize(file):
+    if t.type == sparse.END_OF_FILE:
+      yield t
+    else:
+      yield sparse.Token(t.value, t.value, t.span)
 
 
 def parse_string(grammar, tokens):
   try:
-    return sparse.parse_all(sparse.make_parser(grammar), ts(tokens))
+    file = sparse.File('<input>', tokens)
+    return sparse.parse_all(sparse.make_parser(grammar), ts(file), file)
   except ParseError as e:
     #sparse.print_parser(sparse.make_parser(grammar), sys.stdout)
     raise e.add_context('input.gcl', ''.join(str(t) for t in tokens))
+
+
+def values(tokens):
+  return [t.value for t in tokens]

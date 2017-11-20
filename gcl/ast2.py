@@ -13,6 +13,7 @@ from . import framework
 from . import runtime
 from . import schema
 from . import exceptions
+from . import functions
 
 
 DEBUG = False
@@ -143,10 +144,10 @@ class TupleMemberNode(AstNode):
     # generate better error messages. Not doing it here makes the grammar a lot
     # messier.
     if isinstance(self.value_expression, Void):
-      self.value_expression.name = self.name
+      self.value_expression.set_void_name(self.name)
 
   def attach_comment(self, comment):
-    self.comment = comment
+    self.comment.add_line(comment)
 
   def __repr__(self):
     schema_repr = ': %r' % self.schema_node if not isinstance(self.schema_node, NoSchemaNode) else ''
@@ -202,30 +203,29 @@ class RuntimeTupleNode(TupleNode):
   dictionaries to Tuple objects at runtime, so we need to invent a tuple-like object.
   """
   def __init__(self, dct):
-    self.members = [TupleMemberNode(sparse.Token('identifier', key, sparse.empty_span))
+    self.members = [TupleMemberNode(sparse.empty_span, sparse.Token('identifier', key, sparse.empty_span), no_schema, value)
                     for key, value in dct.items()]
     self.member = {m.name: m for m in self.members}
 
 
 def dict2tuple(dct):
-    return runtime.Tuple(RuntimeTupleNode(dct), framework.EmptyEnvironment(), dict2tuple)
+  return runtime.Tuple(RuntimeTupleNode(dct), framework.EmptyEnvironment(), dict2tuple)
 
 
 class DocComment(object):
-  def __init__(self, *lines):
+  def __init__(self):
     self.lines = []
     self.tags = collections.defaultdict(lambda: '')
 
-    lines = textwrap.dedent('\n'.join(lines)).split('\n')
-    for line in lines:
-      if line.startswith('@'):
-        try:
-          tag, content = line[1:].split(' ', 1)
-        except ValueError:
-          tag, content = line[1:], ''
-        self.tags[tag] = content
-      else:
-        self.lines.append(line)
+  def add_line(self, line):
+    if line.startswith('@'):
+      try:
+        tag, content = line[1:].split(' ', 1)
+      except ValueError:
+        tag, content = line[1:], ''
+      self.tags[tag] = content
+    else:
+      self.lines.append(line)
 
   def tag(self, name):
     return self.tags.get(name, None)
@@ -260,8 +260,11 @@ class Void(framework.Thunk, AstNode):
 
     self.void_name = None
 
+  def set_void_name(self, name):
+    self.void_name = name
+
   def eval(self, env):
-    raise exceptions.EvaluationError('Unbound value')
+    raise exceptions.EvaluationError('%s: unbound value' % self.void_name)
 
   def is_unbound(self):
     # Overridden from Thunk
@@ -282,12 +285,12 @@ class Inherit(framework.BindableThunk, AstNode):
     self.env = env
 
   def bind(self, env):
-    return Inherit(self.identifier_token, env)
+    return Inherit(self.identifier_token.span, self.identifier_token, env)
 
   def eval(self, env):
     if not self.env:
       raise exceptions.EvaluationError("Inherited key")
-    return self.env[self.name]
+    return self.env[self.identifier]
 
   def __repr__(self):
     return 'inherit %s' % self.identifier
@@ -312,7 +315,7 @@ class UnOp(framework.Thunk, AstNode):
     fn = functions.unary_operators.get(self.op, None)
     if fn is None:
       raise exceptions.EvaluationError('Unknown unary operator: %s' % self.op)
-    return call_fn(fn, ArgList([self.right]), env)
+    return call_fn(fn, ArgList(sparse.empty_span, self.right), env)
 
   def __repr__(self):
     return '%s%s%r' % (self.op, ' ' if self.op == 'not' else '', self.right)
@@ -334,7 +337,7 @@ class BinOp(framework.Thunk, AstNode):
     if fn is None:
       raise exceptions.EvaluationError('Unknown operator: %s' % self.op)
 
-    return call_fn(fn, ArgList([self.left, self.right]), env)
+    return call_fn(fn, ArgList(sparse.empty_span, self.left, self.right), env)
 
   def __repr__(self):
     return ('%r %s %r' % (self.left, self.op, self.right))
@@ -479,10 +482,12 @@ class Application(framework.Thunk, AstNode):
       return call_fn(fn, self.right_as_list(), env)
     except Exception as e:
       # Wrap exceptions
+      import traceback; traceback.print_exc()
+
       self.reraise_in_context(e, 'while calling \'%r\'' % self)
 
   def __repr__(self):
-    return '%r(%r)' % (self.left, self.right)
+    return '%r%r' % (self.left, self.right_as_list())
 
   def applyTuple(self, tuple, right, env):
     """Apply a tuple to something else."""
@@ -521,29 +526,31 @@ class Application(framework.Thunk, AstNode):
 
 class Deref(framework.Thunk, AstNode):
   """Dereferencing of a dictionary-like object."""
-  def __init__(self, span, haystack, needle_token):
+  def __init__(self, span, haystack_node, needle_token):
     framework.Thunk.__init__(self)
-    AstNode.__init__(self, span, haystack, needle_token)
+    AstNode.__init__(self, span, haystack_node, needle_token)
 
-    self._haystack = haystack
-    self.needle_token = needle_token
-
-  def _children(self):
-    return [self._haystack, self.needle_token]
+    self.haystack_node = haystack_node
+    self.needle = needle_token.value
 
   def haystack(self, env):
-    return framework.eval(self._haystack, env)
+    with framework.EvaluationContext(validate=True):
+      haystack = framework.eval(self.haystack_node, env)
+      # We should validate the left-hand side of the deref always, but don't impose
+      # any external schema.
+      schema.validate(haystack, schema.any_schema)
+    return haystack
 
   def eval(self, env):
     try:
-      return self.haystack(env)[self.needle_token.value]
+      return self.haystack(env)[self.needle]
     except exceptions.EvaluationError as e:
       self.reraise_in_context(e, 'while evaluating \'%r\'' % self)
     except TypeError as e:
-      self.reraise_in_context(e, 'while getting %r from %r' % (self.needle_token, self._haystack))
+      self.reraise_in_context(e, 'while getting %r from %r' % (self.needle, self.haystack_node))
 
   def __repr__(self):
-    return '%s.%s' % (self._haystack, self.needle_token)
+    return '%s.%s' % (self.haystack_node, self.needle)
 
   @staticmethod
   def make(span, *tokens):
@@ -564,11 +571,11 @@ def drop(n, xs):
       yield x
 
 
-def attach_doc_comment(*args):
+def attach_doc_comment(span, *args):
   comments, member = args[:-1], args[-1]
 
   for comment in comments:
-    member.attach_comment(comment)
+    member.attach_comment(comment.value)
 
   return member
 
@@ -578,7 +585,7 @@ def call_fn(fn, arglist, env):
   if isinstance(fn, framework.LazyFunction):
     # The following looks complicated, but this is necessary because you can't
     # construct closures over the loop variable directly.
-    thunks = [(lambda thunk: lambda: framework.eval(thunk, env))(th) for th in arglist.values]
+    thunks = [(lambda thunk: lambda: framework.eval(thunk, env))(th) for th in arglist.elements]
     return fn(*thunks)
 
   evaled_args = framework.eval(arglist, env)
@@ -633,6 +640,8 @@ class MemberSchemaNode(framework.Thunk, AstNode):
   certain variable names like 'int' and 'string' refer to global objects that can't be rebound (in
   effect, they resolve to their variable name).
 
+  On this object, expr_node can be None, in which case there is no spec.
+
   The schema evaluation object model looks like this:
 
 
@@ -646,21 +655,21 @@ class MemberSchemaNode(framework.Thunk, AstNode):
 
 
   """
-  def __init__(self, span, private, required, expr):
+  def __init__(self, span, private, required, expr_node):
     framework.Thunk.__init__(self)
-    AstNode.__init__(self, span, expr)
+    AstNode.__init__(self, span, expr_node)
 
     # FIXME: Private and required are also tokens (or should be)
     self.private = private
     self.required = required
-    self.expr = expr
+    self.expr_node = expr_node
 
   def eval(self, env):
-    return make_schema_from(self.expr, env)
+    return make_schema_from(self.expr_node, env)
 
   def __repr__(self):
     return ' '.join((['required'] if self.required else []) +
-                    ([repr(self.expr)] if not isinstance(self.expr, NoSchemaNode) else []))
+                    ([repr(self.expr_node)] if self.expr_node is not None else []))
 
 
 class TupleSchemaAccess(object):
@@ -669,6 +678,7 @@ class TupleSchemaAccess(object):
     self.tuple = tuple
 
   def __getitem__(self, key):
+    print key, self.tuple.get_schema_spec(key)
     return self.tuple.get_schema_spec(key)
 
   def __contains__(self, key):
@@ -700,6 +710,9 @@ def make_schema_from(value, env):
   The input and output types of this function are super unclear, and are held together by ponies,
   wishes, duct tape, and a load of tests. See the comments for horrific entertainment.
   """
+  if value is None:
+    return schema.any_schema
+
   # So this thing may not need to evaluate anything[0]
   if isinstance(value, framework.Thunk):
     value = framework.eval(value, env)
@@ -813,11 +826,11 @@ def make_grammar(allow_errors):
         ) >> ListComprehension
 
     # Tuple
-    inherit_member = Rule('inherit') >> Q('inherit') - p.ZeroOrMore(T('identifier')) >> Inherit.make
+    inherit_member = Rule('inherit') >> Q('inherit') - p.OneOrMore(T('identifier')) >> Inherit.make
     schema_spec = Rule('schema_spec') >> (
-        p.Optional(T('private').action(lambda _: True), default=False)
-        + p.Optional(T('required').action(lambda _: True), default=False)
-        + p.Optional(expression)
+        p.Optional(T('private').action(lambda _, __: True), default=False)
+        + p.Optional(T('required').action(lambda _, __: True), default=False)
+        + p.Optional(expression, default=None)
         ) >> MemberSchemaNode
     optional_schema   = Rule('optional_schema')   >> p.Optional(Q(':') - schema_spec, default=no_schema)
 
@@ -874,8 +887,8 @@ def make_grammar(allow_errors):
 
     # Binary operators before juxtaposition
     factor = deref
-    term = Rule() >> factor - p.ZeroOrMore((T('mul_op') | T('in')) - factor) >> BinOp.make
-    applicable = Rule() >> term - p.ZeroOrMore(T('add_op') - term) >> BinOp.make
+    term = Rule('term') >> factor - p.ZeroOrMore((T('mul_op') | T('in')) - factor) >> BinOp.make
+    applicable = Rule('applicable') >> term - p.ZeroOrMore((T('plus') | T('minus')) - term) >> BinOp.make
 
     # Juxtaposition
     juxtaposed = Rule('juxtaposed') >> applicable - p.ZeroOrMore(applicable) >> Application.make
@@ -888,6 +901,10 @@ def make_grammar(allow_errors):
     # scope to be a tuple.
     start = expression
     start_tuple = tuple_members
+
+    # Turn grammar into a parser
+    start_parser = sparse.make_parser(start)
+    start_tuple_parser = sparse.make_parser(start_tuple)
   GRAMMAR_CACHE[allow_errors] = Grammar
   return Grammar
 
@@ -903,10 +920,9 @@ def reads(s, filename, loader, implicit_tuple, allow_errors):
     tokens = list(scanner.tokenize(file))
 
     grammar = make_grammar(allow_errors=allow_errors)
-    root = grammar.start_tuple if implicit_tuple else grammar.start
-    parser = sparse.make_parser(root)
+    parser = grammar.start_tuple_parser if implicit_tuple else grammar.start_parser
     result = sparse.parse_all(parser, tokens, file)
 
     return result[0]
   except sparse.ParseError as e:
-    raise e.add_context(filename, s)
+    raise exceptions.ParseError(e.span, e.add_context(filename, s).message)

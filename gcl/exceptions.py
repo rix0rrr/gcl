@@ -13,6 +13,11 @@ class ParseError(GCLError):
     nice_message = span.annotated_source(error_message)
     super(ParseError, self).__init__(nice_message)
 
+  @property
+  def line_nr(self):
+    line_nr, _, _ = self.span.line_context()
+    return line_nr
+
 
 class EvaluationError(GCLError):
   def __init__(self, message, inner=None):

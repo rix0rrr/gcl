@@ -14,6 +14,7 @@ The tokenizer is based on regex module tricks from:
 from __future__ import unicode_literals
 
 import collections
+import copy
 import itertools
 import functools
 import copy
@@ -35,20 +36,21 @@ class Symbol(object):
 
 END_OF_FILE = Symbol('end-of-file')
 AND_MORE = Symbol('and-more')
+NO_DEFAULT = Symbol('NO_DEFAULT')
 
 
 class ParseError(RuntimeError):
-  def __init__(self, loc, message):
+  def __init__(self, span, message):
     RuntimeError.__init__(self, message)
-    self.loc = loc
+    self.span = span
 
   def add_context(self, filename, contents):
-    line_nr, line_text, line_offset = find_line_context(contents, self.loc[0])
+    line_nr, line_text, line_offset = find_line_context(contents, self.span[0])
     error_message = '%s:%d: %s' % (filename, line_nr + 1, self.message)
-    uw = max(3, self.loc[1] - self.loc[0])
+    uw = max(3, self.span[1] - self.span[0])
     underline = ' '  * line_offset + '^' * uw + ' here'
 
-    return ParseError(self.loc,
+    return ParseError(self.span,
                       error_message + '\n' + line_text + '\n' + underline)
 
 
@@ -57,8 +59,6 @@ class ParseError(RuntimeError):
 
 
 class File(object):
-  __slots__ = ['filename', 'contents']
-
   def __init__(self, filename, contents):
     self.filename = filename
     self.contents = contents
@@ -84,6 +84,9 @@ class Span(collections.namedtuple('Span', ('begin', 'end', 'file'))):
   def annotated_source(self, message):
     """Returns a list of two strings, one with an error message and one with a position indicator right under it."""
     line_nr, line_text, offset_in_line = self.line_context()
+
+    print self
+    print line_nr, line_text, offset_in_line
 
     file_indicator = '%s:%d: ' % (self.file.filename, line_nr)
     return [file_indicator + line_text,
@@ -183,6 +186,18 @@ class Scanner(object):
         ]) for group, r in enumerate(rules, 1)]))
     ])).scanner
 
+  def tokenize(self, file):
+    assert isinstance(file, File)
+    for token, match, proc in self.scan(file.contents):
+      if token == 'whitespace' or token == 'comment':
+        continue
+      if token == 'keyword' or token == 'symbol':
+        token = match.group()
+      value = proc(match.group()) if proc else match.group()
+      begin, end = match.span()
+      yield Token(token, value, Span(begin, end, file))
+    yield Token(END_OF_FILE, '', Span(len(file.contents), len(file.contents), file))
+
   def scan(self, string, skip=False):
     sc = self._scanner(string)
     len_string = len(string)
@@ -195,16 +210,6 @@ class Scanner(object):
     if match and match.end() < len_string:
       span = (match.end(), match.end() + 1)
       raise ParseError(span, 'Unable to match token at %s' % (string[match.end():match.end() + 10] + '...'))
-
-  def tokenize(self, file):
-    for token, match, proc in self.scan(file.contents):
-      if token == 'whitespace' or token == 'comment':
-        continue
-      if token == 'keyword' or token == 'symbol':
-        token = match.group()
-      value = proc(match.group()) if proc else match.group()
-      begin, end = match.span()
-      yield Token(token, value, Span(begin, end, file))
 
 
 #--------------------------------------------------------------------------------
@@ -240,7 +245,7 @@ class Grammar(object):
 
 class StopBacktrackingGrammar(Grammar):
   def make_parser(self):
-    return StopBacktrackingParser(self.name)
+    return NO_BACKTRACKING_PARSER
 
 NO_BACKTRACKING = StopBacktrackingGrammar()
 
@@ -288,14 +293,14 @@ class And(Grammar):
 
 
 class Optional(Grammar):
-  def __init__(self, inner, default=None):
+  def __init__(self, inner, default=NO_DEFAULT):
     Grammar.__init__(self)
     self.inner = inner.take_reference()
     self.default = default
 
   def make_parser(self):
     return OptionalParser(self.inner.make_parser(), self.name, missing_default=self.default)
-    return CountParser(self.inner.make_parser(), 0, 1, self.name, missing_default=self.default)
+    #return CountParser(self.inner.make_parser(), 0, 1, self.name, missing_default=self.default)
 
 
 class Either(Grammar):
@@ -320,6 +325,16 @@ class ZeroOrMore(Grammar):
 
   def make_parser(self):
     return CountParser(self.inner.make_parser(), 0, None, self.name)
+
+
+class OneOrMore(Grammar):
+  def __init__(self, inner):
+    assert isinstance(inner, Grammar)
+    Grammar.__init__(self)
+    self.inner = inner.take_reference()
+
+  def make_parser(self):
+    return CountParser(self.inner.make_parser(), 1, None, self.name)
 
 
 def delimited_list(expr, sep):
@@ -384,9 +399,9 @@ class Rule(Grammar):
 
   def make_parser(self):
     if self.action:
-      return CapturingParser(BacktrackingScopeParser(self.grammar.make_parser(), None), self.action, self.name)
+      return CapturingParser(self.grammar.make_parser(), self.action, self.name)
     else:
-      return BacktrackingScopeParser(self.grammar.make_parser(), self.name)
+      return self.grammar.make_parser()
 
 
 #--------------------------------------------------------------------------------
@@ -447,7 +462,7 @@ class AtomParser(Parser):
   def parse(self, state):
     token = state.current_token()
     if token.type != self.token_type:
-      return state.make_failure(token, "Unexpected '%s', expected '%s'" % (token.type, self.token_type), can_backtrack=state.allow_backtracking)
+      return state.make_failure(token, "Unexpected '%s', expected '%s'" % (token.value, self.token_type))
     return state.capture() if self.capture else state.skip()
 
   def caption(self):
@@ -465,20 +480,6 @@ class NullParser(Parser):
 
   def caption(self):
     return 'NullParser [%d]' % self.counter
-
-
-@parser_class
-class StopBacktrackingParser(Parser):
-  def prefix_token_types(self):
-    return [AND_MORE]
-
-  @trace_parser
-  def parse(self, state):
-    state.allow_backtracking = False
-    return state
-
-  def caption(self):
-    return 'StopBacktrackingParser [%d]' % self.counter
 
 
 @parser_class
@@ -504,21 +505,32 @@ class SequenceParser(Parser):
     Parser.__init__(self, name)
     self.parsers = splat_parsers(SequenceParser, parsers)
 
+    # Build a sequence of which positions allow backtracking, for quicker
+    # lookup in the inner loop.
+    self.parsers_and_bt = []
+    allow_backtracking = True
+    for parser in self.parsers:
+      if parser is NO_BACKTRACKING_PARSER:
+        allow_backtracking = False
+      else:
+        self.parsers_and_bt.append((parser, allow_backtracking))
+
   def prefix_token_types(self):
-    ret = self.parsers[0].prefix_token_types()
-    while AND_MORE in ret:
-      for parser in self.parsers[1:]:
-        if parser is not NO_BACKTRACKING:
-          ret.remove(AND_MORE)
-          ret.extend(parser.prefix_token_types())
+    ret = []
+    for parser in self.parsers:
+      ret.extend(parser.prefix_token_types())
+      if AND_MORE not in ret:
+        break
+      ret.remove(AND_MORE)
     return ret
 
   @trace_parser
   def parse(self, state):
-    for parser in self.parsers:
-      #assert state.is_success  # Asserts already have noticeable effect
+    for parser, allow_backtracking in self.parsers_and_bt:
+      #assert state.is_success  # Asserts already have noticeable performance impact
       state = parser.parse(state)
       if not state.is_success:
+        state.is_backtrackable_failure = allow_backtracking
         break
     return state
 
@@ -527,6 +539,17 @@ class SequenceParser(Parser):
 
   def caption(self):
     return 'SequenceParser [%d]' % self.counter
+
+
+class NoBacktrackingMarker(object):
+  def show(self):
+    return 'No Backtracking', []
+
+  def __repr__(self):
+    return 'NO_BACKTRACKING_PARSER'
+
+
+NO_BACKTRACKING_PARSER = NoBacktrackingMarker()
 
 
 @parser_class
@@ -558,12 +581,11 @@ class AlternativesParser(Parser):
         # It MIGHT be acceptable to parse nothing here. Try returning the input state and trying there.
         return state
 
-      return state.make_failure(token, "Unexpected '%s', expected one of %s" % (token.type, self.describe_expected_tokens), can_backtrack=state.allow_backtracking)
+      return state.make_failure(token, "Unexpected '%s', expected one of %s" % (token.value, self.describe_expected_tokens))
 
     errors = []
     for parser in parsers:
       # Enable backtracking over our alternatives
-      state.allow_backtracking = True
       ret = parser.parse(state)
       if not ret.is_backtrackable_failure:  # Either success or not backtrackable
         return ret
@@ -582,7 +604,7 @@ class AlternativesParser(Parser):
 
 @parser_class
 class OptionalParser(Parser):
-  def __init__(self, inner, name, missing_default=None):
+  def __init__(self, inner, name, missing_default=NO_DEFAULT):
     Parser.__init__(self, name)
     self.inner = inner
     self.inner_parse = inner.parse
@@ -593,11 +615,15 @@ class OptionalParser(Parser):
 
   @trace_parser
   def parse(self, state):
-    state.allow_backtracking = True
     ret = self.inner_parse(state)
-    if ret.is_backtrackable_failure:
+    if not ret.is_success:
+      if not ret.is_backtrackable_failure:
+        return ret
+
       # Attach the failure to the successful parse
-      return (state.push_value(self.missing_default) if self.missing_default is not None else state).with_failure(ret)
+      if self.missing_default is not NO_DEFAULT:
+        state = state.push_value(self.missing_default)
+      return state.with_failure(ret)
     return ret
 
   def children(self):
@@ -609,7 +635,7 @@ class OptionalParser(Parser):
 
 @parser_class
 class CountParser(Parser):
-  def __init__(self, inner, min_count, max_count, name, missing_default=None):
+  def __init__(self, inner, min_count, max_count, name, missing_default=NO_DEFAULT):
     Parser.__init__(self, name)
     self.inner = inner
     self.min_count = min_count
@@ -636,16 +662,17 @@ class CountParser(Parser):
       #assert state.is_success
 
       # Enable backtracking over our alternatives
-      state.allow_backtracking = True
       ret = self.inner.parse(state)
 
       # If not a successful parse, we'll assume the missing value and continue
-      if ret.is_backtrackable_failure:
-        if i == 0 and self.missing_default is not None:
-          return state.push_value(self.missing_default)
-        return state
       if not ret.is_success:
-        return ret
+        if not ret.is_backtrackable_failure:
+          return ret
+
+        if i == 0 and self.missing_default is not NO_DEFAULT:
+          state = state.push_value(self.missing_default)
+
+        return state
 
       state = ret
       i += 1
@@ -668,7 +695,7 @@ class EndOfFileParser(Parser):
   def parse(self, state):
     token = state.current_token()
     if token.type != END_OF_FILE:
-      return state.make_failure(token, "Unexpected '%s', expected end of file" % token.type, can_backtrack=state.allow_backtracking)
+      return state.make_failure(token, "Unexpected '%s', expected end of file" % token.value)
     # Don't advance (otherwise the state becomes unprintable)
     return state
 
@@ -705,7 +732,11 @@ class CapturingParser(Parser):
     whole_span = state_tokens_lazy_list[start_token_i].span.until(state_tokens_lazy_list[end_token_i].span)
 
     # Old values with dispatch result appended, new location
-    new_value = self.action(whole_span, *ret.values[old_value_count:])
+    try:
+      new_value = self.action(whole_span, *ret.values[old_value_count:])
+    except TypeError as e:
+      raise TypeError('While calling %r: %s' % (self.action, e))
+
     if Trace.enabled:
       Trace.report('Captured: %r', new_value)
 
@@ -744,6 +775,8 @@ class ForwardParser(Parser):
     return 'Forward [%d]' % self.counter
 
 
+
+# FIXME: This thing does not make sense.
 @parser_class
 class BacktrackingScopeParser(Parser):
   def __init__(self, inner, name):
@@ -792,13 +825,13 @@ class ParseState(object):
 CALLS = collections.Counter()
 
 class ParseSuccess(ParseState):
-  __slots__ = ('tokens', 'values', 'allow_backtracking', 'furthest_failure')
+  is_success = True
+  is_backtrackable_failure = False
 
-  def __init__(self, tokens, values, allow_backtracking=True, furthest_failure=None):
+  def __init__(self, tokens, values, furthest_failure):
     #assert isinstance(values, list)
     self.tokens = tokens
     self.values = values
-    self.allow_backtracking = allow_backtracking
     self.furthest_failure = furthest_failure
 
     if Trace.enabled:
@@ -808,11 +841,9 @@ class ParseSuccess(ParseState):
     self.current_token = self.tokens.current
     self.previous_token = self.tokens.previous
 
-    self.is_success = True
-    self.is_backtrackable_failure = False
 
   def with_values(self, values):
-    return ParseSuccess(self.tokens, values, self.allow_backtracking, self.furthest_failure)
+    return ParseSuccess(self.tokens, values, self.furthest_failure)
 
   # def current_token(self):
     # return self.tokens.current()
@@ -822,20 +853,17 @@ class ParseSuccess(ParseState):
 
   def capture(self):
     token = self.tokens.current()
-    return ParseSuccess(self.tokens.advanced(), self.values + [token], self.allow_backtracking, self.furthest_failure)
+    return ParseSuccess(self.tokens.advanced(), self.values + [token], self.furthest_failure)
 
   def push_value(self, value):
-    return ParseSuccess(self.tokens, self.values + values_from_value(value), self.allow_backtracking, self.furthest_failure)
+    return ParseSuccess(self.tokens, self.values + values_from_value(value), self.furthest_failure)
 
   def skip(self):
-    return ParseSuccess(self.tokens.advanced(), self.values, self.allow_backtracking, self.furthest_failure)
-
-  def with_backtracking(self, allow_backtracking):
-    return ParseSuccess(self.tokens, self.values, allow_backtracking, self.furthest_failure)
+    return ParseSuccess(self.tokens.advanced(), self.values, self.furthest_failure)
 
   def with_failure(self, furthest_failure):
     #assert isinstance(furthest_failure, ParseFailure)
-    return ParseSuccess(self.tokens, self.values, self.allow_backtracking, furthest_failure)
+    return ParseSuccess(self.tokens, self.values, furthest_failure)
 
   def absorb_failure(self, state):
     if isinstance(state, ParseSuccess):
@@ -846,11 +874,11 @@ class ParseSuccess(ParseState):
     return self.with_failure(state)
 
   def show(self):
-    return '%s%s' % (self.tokens.show(), ' (b)' if self.allow_backtracking else '')
+    return '%s' % (self.tokens.show())
 
-  def make_failure(self, *args, **kwargs):
+  def make_failure(self, token, error):
     """Return the farthest error between the one on this success state and a new one."""
-    fresh = ParseFailure(*args, **kwargs)
+    fresh = ParseFailure(token, error)
     if not self.furthest_failure:
       return fresh
     return self.furthest_failure.furthest(fresh)
@@ -864,19 +892,15 @@ def values_from_value(value):
 
 
 class ParseFailure(ParseState):
-  def __init__(self, token, error, can_backtrack=True):
+  is_success = False
+
+  def __init__(self, token, error):
     self.token = token
     self.error = error
-    self.can_backtrack = can_backtrack
-
-    self.is_success = False
-    self.is_backtrackable_failure = self.can_backtrack
+    self.is_backtrackable_failure = True
 
     if Trace.enabled:
       Trace.failure(self)
-
-  def with_backtracking(self, can_backtrack):
-    return ParseFailure(self.token, self.error, can_backtrack=can_backtrack)
 
   def furthest(self, other):
     if self.token.span > other.token.span:
@@ -885,15 +909,13 @@ class ParseFailure(ParseState):
       return other
 
   def show(self):
-    return '%s: %s%s' % (self.token, self.error, ' (b)' if self.can_backtrack else '')
+    return '\n'.join(self.token.span.annotated_source(self.error))
 
   def __repr__(self):
     return self.show()
 
 
 class TokenStream(object):
-  __slots__ = ('lazy_list', 'i', 'file')
-
   def __init__(self, lazy_list, i, file):
     self.lazy_list = lazy_list
     self.i = i
@@ -970,7 +992,7 @@ class Trace(object):
 
   def __enter__(self):
     if Trace.enabled and (not Trace.names_only or self.parser.name):
-      #print('  ' * len(Trace.trace_stack) + '%s  |  %s' % (self.parser.show()[0], self.state.show()))
+      print('  ' * len(Trace.trace_stack) + '%s  |  %s' % (self.parser.show()[0], self.state.show()))
       self.pushed = True
       Trace.trace_stack.append(self)
     return self
@@ -1000,19 +1022,19 @@ class Trace(object):
   @staticmethod
   def report(message, *args):
     if Trace.enabled:
-      #print('  ' * len(Trace.trace_stack) + (message % args))
+      print('  ' * len(Trace.trace_stack) + (message % args))
       pass
 
   @staticmethod
   def success(state):
     pass
-    # if Trace.enabled:
-      # print '  ' * Trace.indent + state.show()
+    if Trace.enabled:
+      print('  ' * len(Trace.trace_stack) + '*** ' + state.show())
 
   @staticmethod
   def failure(state):
     if Trace.enabled:
-      print('  ' * len(Trace.trace_stack) + '!!! %s' % state.show())
+      print('  ' * len(Trace.trace_stack) + '!!! ' + state.show())
       Trace.parse_failures.update([Trace.trace_stack[-1].parser])
 
 
@@ -1033,24 +1055,17 @@ def make_parser(grammar):
 
 
 def parse_all(parser, tokens, file):
-  eof_token = make_eof_token(file)
   if isinstance(tokens, list):
-    tokens.append(eof_token)
     the_list = EagerList(tokens)
   else:
-    tokens = itertools.chain(tokens, [eof_token])
     the_list = LazyList(tokens)
 
   tokens = TokenStream(the_list, 0, file)
-  state = parser.parse(ParseSuccess(tokens, []))
+  state = parser.parse(ParseSuccess(tokens, [], furthest_failure=None))
   if not state.is_success:
     raise ParseError(state.token.span, state.error)
 
   return state.values
-
-
-def make_eof_token(file):
-  return Token(END_OF_FILE, '', Span(len(file.contents), len(file.contents), file))
 
 
 def print_parser(parser, stream):
@@ -1084,14 +1099,21 @@ def splat_parsers(klass, parsers):
 
 def find_line_context(text, start):
   """From a text and an offset, find the line nr, the line contents and the index in the line."""
-  m = None
-  line_nr = 0
-  for line_nr, m in enumerate(re.compile('\n').finditer(text, 0, start), 1):
-    pass
+  line_nr = 1
+  line_start = 0
+  for ix in all_newlines(text):
+    if ix >= start:
+      break
+    line_start = ix + 1
+    line_nr += 1
 
-  line_start = m.start() + 1 if m else 0
   line_end = text.find('\n', start)
   if line_end == -1:
     line_end = len(text)
 
   return line_nr, text[line_start:line_end], start - line_start
+
+def all_newlines(s):
+  """Return the indexes of all newlines in string s."""
+  for m in re.compile('\n').finditer(s):
+    yield m.start()

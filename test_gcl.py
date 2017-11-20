@@ -795,7 +795,7 @@ class TestErrorMessages(unittest.TestCase):
       self.fail('Should have thrown')
     except Exception as e:
       print(str(e))
-      self.assertTrue('\'the_var\'' in str(e))
+      self.assertTrue('the_var' in str(e))
 
   def testParseErrorIndicatesCorrectLocation(self):
     try:
@@ -806,8 +806,8 @@ class TestErrorMessages(unittest.TestCase):
       """.strip(), implicit_tuple=True)
       self.fail('Should have thrown')
     except gcl.ParseError as e:
-      print(e.sourcelocation.line)
-      self.assertTrue('woop' in e.sourcelocation.line)
+      self.assertEquals(2, e.line_nr)
+      #self.assertTrue('woop' in e.sourcelocation.line)
 
 
 class TestRuntimeCaps(unittest.TestCase):
