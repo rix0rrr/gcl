@@ -53,7 +53,7 @@ class AstNode(object):
     Filename, line and column."""
     into = into if into is not None else []
 
-    if self.span.contains(q) and self.returned_by_find_query:
+    if self.span.contains_query(q) and self.returned_by_find_query:
       into.append(self)
 
     for child in self.child_nodes:
@@ -741,16 +741,6 @@ def make_tuple(x):
   if isinstance(x, framework.TupleLike):
     return x
   return dict2tuple(x)
-
-
-class SourceQuery(object):
-  def __init__(self, filename, line, col):
-    self.filename = filename
-    self.line = line
-    self.col = col
-
-  def __repr__(self):
-    return 'SourceQuery(%r, %r, %r)' % (self.filename, self.line, self.col)
 
 
 #----------------------------------------------------------------------

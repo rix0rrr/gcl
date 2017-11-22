@@ -58,7 +58,7 @@ def loader_with_search_path(search_path):
 
 make_env = framework.make_env
 make_tuple = ast.make_tuple
-SourceQuery = ast.SourceQuery
+SourceQuery = sparse.SourceQuery
 
 
 # Default loader doesn't have any search path

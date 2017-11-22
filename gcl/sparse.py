@@ -68,10 +68,14 @@ class File(object):
 
 
 class Span(collections.namedtuple('Span', ('begin', 'end', 'file'))):
-  def contains(self, rhs):
+  def contains_span(self, rhs):
     """Return True if rhs is fully within lhs."""
     return ((self.file == rhs.file)
         and (self.begin <= rhs.begin) and (rhs.end <= self.end))
+
+  def contains_query(self, q):
+    return (self.file.filename == q.filename
+        and self.begin <= q.begin and q.end <= self.end)
 
   def line_context(self):
     """Return the line number and complete line of the current span in the original file.
@@ -122,6 +126,16 @@ class EmptySpan(object):
     return rhs
 
 empty_span = EmptySpan()
+
+
+class SourceQuery(object):
+  def __init__(self, filename, line, col):
+    self.filename = filename
+    self.line = line
+    self.col = col
+
+  def __repr__(self):
+    return 'SourceQuery(%r, %r, %r)' % (self.filename, self.line, self.col)
 
 
 def all_newlines(s):
