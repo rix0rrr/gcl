@@ -10,7 +10,7 @@ class ParseError(GCLError):
     self.span = span
     self.error_message = error_message
 
-    nice_message = span.annotated_source(error_message)
+    nice_message = '\n'.join(span.annotated_source(error_message))
     super(ParseError, self).__init__(nice_message)
 
   @property

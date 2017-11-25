@@ -4,6 +4,7 @@ These utility functions are intended for GCL tools (in particular, gcls).
 """
 from __future__ import absolute_import
 
+import collections
 import textwrap
 
 import gcl
@@ -60,10 +61,6 @@ def is_tuple_member_node(x):
   return isinstance(x, ast.TupleMemberNode)
 
 
-def is_identifier(x):
-  return isinstance(x, ast.Identifier)
-
-
 def is_deref_node(x):
   return isinstance(x, ast.Deref)
 
@@ -84,7 +81,7 @@ def enumerate_scope(ast_rootpath, root_env=None, include_default_builtins=False)
       if is_tuple_node(node):
         for member in node.members:
           if member.name not in scope:
-            scope[member.name] = Completion(member.name, False, member.comment.as_string(), member.location)
+            scope[member.name] = Completion(member.name, False, member.comment.as_string(), member.span)
 
     if include_default_builtins:  # Backwards compat flag
       root_env = gcl.default_env
@@ -135,17 +132,12 @@ def find_deref_completions(ast_rootpath, root_env=gcl.default_env):
 
 def get_completion(haystack, name):
   thunk = haystack.get_member_node(name)
-  return Completion(name, False, thunk.comment.as_string(), thunk.location)
+  return Completion(name, False, thunk.comment.as_string(), thunk.span)
 
 
 def is_identifier_position(rootpath):
-  """Return whether the cursor is in identifier-position in a member declaration."""
-  if len(rootpath) >= 2 and is_tuple_member_node(rootpath[-2]) and is_identifier(rootpath[-1]):
-    return True
-  if len(rootpath) >= 1 and is_tuple_node(rootpath[-1]):
-    # No deeper node than tuple? Must be identifier position, otherwise we'd have a TupleMemberNode.
-    return True
-  return False
+  """Return whether the cursor is in an identifier declaration."""
+  return rootpath and isinstance(rootpath[-1], ast.IntroIdentifier)
 
 
 def find_completions_at_cursor(ast_tree, filename, line, col, root_env=gcl.default_env):
@@ -210,10 +202,6 @@ def pair_iter(xs):
     last = x
 
 
-class Completion(object):
+class Completion(collections.namedtuple('Completion', ['name', 'builtin', 'doc', 'span'])):
   """Represents a potential completion."""
-  def __init__(self, name, builtin, doc, location):
-    self.name = name
-    self.builtin = builtin
-    self.doc = doc
-    self.location = location
+  pass

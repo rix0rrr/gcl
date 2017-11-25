@@ -42,16 +42,11 @@ NO_DEFAULT = Symbol('NO_DEFAULT')
 class ParseError(RuntimeError):
   def __init__(self, span, message):
     RuntimeError.__init__(self, message)
+    assert isinstance(span, Span)
     self.span = span
 
-  def add_context(self, filename, contents):
-    line_nr, line_text, line_offset = find_line_context(contents, self.span[0])
-    error_message = '%s:%d: %s' % (filename, line_nr + 1, self.message)
-    uw = max(3, self.span[1] - self.span[0])
-    underline = ' '  * line_offset + '^' * uw + ' here'
-
-    return ParseError(self.span,
-                      error_message + '\n' + line_text + '\n' + underline)
+  def context(self):
+    return '\n'.join(self.span.annotated_source(self.message))
 
 
 #--------------------------------------------------------------------------------
@@ -74,8 +69,11 @@ class Span(collections.namedtuple('Span', ('begin', 'end', 'file'))):
         and (self.begin <= rhs.begin) and (rhs.end <= self.end))
 
   def contains_query(self, q):
-    return (self.file.filename == q.filename
-        and self.begin <= q.begin and q.end <= self.end)
+    if q.filename != self.file.filename:
+      return False
+
+    span = query_to_span(q, self.file)
+    return self.begin <= span.begin and span.end <= self.end
 
   def line_context(self):
     """Return the line number and complete line of the current span in the original file.
@@ -85,16 +83,29 @@ class Span(collections.namedtuple('Span', ('begin', 'end', 'file'))):
     """
     return find_line_context(self.file.contents, self.begin)
 
+  def original_string(self):
+    _, line_text, offset_in_line = self.line_context()
+    return line_text[offset_in_line:offset_in_line + self.end - self.begin]
+
   def annotated_source(self, message):
     """Returns a list of two strings, one with an error message and one with a position indicator right under it."""
     line_nr, line_text, offset_in_line = self.line_context()
 
-    print self
-    print line_nr, line_text, offset_in_line
-
     file_indicator = '%s:%d: ' % (self.file.filename, line_nr)
     return [file_indicator + line_text,
-            ' ' * (len(file_indicator) + offset_in_line) + ('^' * min(8, len(self))) + ' ' + message]
+            ' ' * (len(file_indicator) + offset_in_line) + ('^' * min(8, max(1, len(self)))) + ' ' + message]
+
+  @property
+  def line_nr(self):
+    """Return the 1-based line nr."""
+    line_nr, _, _ = self.line_context()
+    return line_nr
+
+  @property
+  def col_nr(self):
+    """Return the 0-based column number."""
+    _, _, col_nr = self.line_context()
+    return col_nr
 
   def __add__(self, rhs):
     if rhs is empty_span:
@@ -118,6 +129,12 @@ class EmptySpan(object):
   def __init__(self):
     Span.__init__(self)
 
+  def contains_span(self, rhs):
+    return False
+
+  def contains_query(self, rhs):
+    return False
+
   def annotated_source(self, message):
     return ['<no file>:0: no source',
             '             ^^^^ ' + message]
@@ -127,15 +144,23 @@ class EmptySpan(object):
 
 empty_span = EmptySpan()
 
+# SourceQuery has 1-based line and column numbers.
+SourceQuery = collections.namedtuple('SourceQuery', ['filename', 'line', 'col'])
 
-class SourceQuery(object):
-  def __init__(self, filename, line, col):
-    self.filename = filename
-    self.line = line
-    self.col = col
+QUERY_TO_SPAN_CACHE = {}
 
-  def __repr__(self):
-    return 'SourceQuery(%r, %r, %r)' % (self.filename, self.line, self.col)
+def query_to_span(query, file):
+  if file.filename != query.filename:
+    raise ValueError('Cannot convert query to span for nonmatching filename')
+
+  key = (query, file)
+  if key not in QUERY_TO_SPAN_CACHE:
+    QUERY_TO_SPAN_CACHE.clear()
+
+    ix = linecol_to_index(file.contents, query.line, query.col - 1)
+    QUERY_TO_SPAN_CACHE[key] = Span(ix, ix, file)
+
+  return QUERY_TO_SPAN_CACHE[key]
 
 
 def all_newlines(s):
@@ -202,6 +227,7 @@ class Scanner(object):
 
   def tokenize(self, file):
     assert isinstance(file, File)
+    self.file = file
     for token, match, proc in self.scan(file.contents):
       if token == 'whitespace' or token == 'comment':
         continue
@@ -210,7 +236,7 @@ class Scanner(object):
       value = proc(match.group()) if proc else match.group()
       begin, end = match.span()
       yield Token(token, value, Span(begin, end, file))
-    yield Token(END_OF_FILE, '', Span(len(file.contents), len(file.contents), file))
+    yield Token(END_OF_FILE, 'end-of-file', Span(len(file.contents), len(file.contents), file))
 
   def scan(self, string, skip=False):
     sc = self._scanner(string)
@@ -223,7 +249,7 @@ class Scanner(object):
 
     if match and match.end() < len_string:
       span = (match.end(), match.end() + 1)
-      raise ParseError(span, 'Unable to match token at %s' % (string[match.end():match.end() + 10] + '...'))
+      raise ParseError(Span(span[0], span[1], self.file), 'Unable to match token at %s' % (string[match.end():match.end() + 10] + '...'))
 
 
 #--------------------------------------------------------------------------------
@@ -729,20 +755,18 @@ class CapturingParser(Parser):
 
   @trace_parser
   def parse(self, state):
-    state_tokens = state.tokens
-
     # Creating a copy of the state object happens a lot. It's cheaper
     # to pass the old one and remember the index we got to.
     old_value_count = len(state.values)
-    start_token_i = state_tokens.i
+    start_token_i = state.tokens.i
 
     ret = self.inner.parse(state)
     if not ret.is_success:
       return ret
 
     # We get the span in an ugly way (by indexes) to squeeze out some extra milliseconds
-    end_token_i = max(state_tokens.i - 1, start_token_i)
-    state_tokens_lazy_list = state_tokens.lazy_list
+    end_token_i = max(ret.tokens.i - 1, start_token_i)
+    state_tokens_lazy_list = state.tokens.lazy_list
     whole_span = state_tokens_lazy_list[start_token_i].span.until(state_tokens_lazy_list[end_token_i].span)
 
     # Old values with dispatch result appended, new location
@@ -1112,7 +1136,11 @@ def splat_parsers(klass, parsers):
 
 
 def find_line_context(text, start):
-  """From a text and an offset, find the line nr, the line contents and the index in the line."""
+  """From a text and an offset, find the line nr, the line contents and the index in the line.
+
+  Line nr is 1-based
+  Colum numbers is 0-based.
+  """
   line_nr = 1
   line_start = 0
   for ix in all_newlines(text):
@@ -1127,7 +1155,29 @@ def find_line_context(text, start):
 
   return line_nr, text[line_start:line_end], start - line_start
 
+
 def all_newlines(s):
   """Return the indexes of all newlines in string s."""
   for m in re.compile('\n').finditer(s):
     yield m.start()
+
+
+def linecol_to_index(s, line, col):
+  """Return string index from 1-based line, 0-based col.
+
+  Returns:
+    string index of indicated position, or length of string if index past end.
+  """
+  line -= 1
+  line_start = 0
+  for ix in all_newlines(s):
+    if line == 0:
+      break
+    line -= 1
+    line_start = ix + 1
+
+  # Ate all newlines
+  if line != 0:
+    return len(s)
+
+  return line_start + col

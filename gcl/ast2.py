@@ -31,6 +31,9 @@ def identity(x):
   return x
 
 
+class UnparseableAccess(RuntimeError):
+  pass
+
 #----------------------------------------------------------------------
 #  AST NODES
 
@@ -45,6 +48,11 @@ class AstNode(object):
   def __init__(self, span, *child_nodes):
     self.span = span
     self.child_nodes = filter(None, child_nodes)
+
+    if DEBUG:
+      for c in self.child_nodes:
+        assert isinstance(c, AstNode)
+
     self.returned_by_find_query = True
 
   def find_tokens(self, q, into=None):
@@ -75,7 +83,6 @@ class Var(framework.Thunk, AstNode):
     AstNode.__init__(self, span)
 
     self.ident = framework.obj_ident()
-    self.identifier_token = identifier_token
     self.identifier = identifier_token.value
 
   def eval(self, env):
@@ -86,6 +93,27 @@ class Var(framework.Thunk, AstNode):
 
   def __repr__(self):
     return self.identifier
+
+  @staticmethod
+  def make(token):
+    return Var(token.span, token)
+
+
+class IntroIdentifier(AstNode):
+  """Token AST node so we can find declared identifiers.
+
+  Not used for evaluation.
+  """
+  def __init__(self, span, identifier_token):
+    AstNode.__init__(self, span)
+    self.identifier_token = identifier_token
+
+  def __repr__(self):
+    return self.identifier_token.value
+
+  @staticmethod
+  def make(token):
+    return IntroIdentifier(token.span, token)
 
 
 class List(framework.Thunk, AstNode):
@@ -132,7 +160,7 @@ class TupleMemberNode(AstNode):
   They have a name, a comment, an expression value and an optional schema.
   """
   def __init__(self, span, identifier_token, schema_node, value_expression):
-    AstNode.__init__(self, span, identifier_token, schema_node, value_expression)
+    AstNode.__init__(self, span, IntroIdentifier.make(identifier_token), schema_node, value_expression)
 
     self.identifier_token = identifier_token
     self.name             = identifier_token.value
@@ -278,7 +306,7 @@ class Inherit(framework.BindableThunk, AstNode):
   """Inherit Thunks can be either bound or unbound."""
   def __init__(self, span, identifier_token, env=None):
     framework.BindableThunk.__init__(self)
-    AstNode.__init__(self, span, identifier_token)
+    AstNode.__init__(self, span, Var.make(identifier_token))
 
     self.identifier_token = identifier_token
     self.identifier = identifier_token.value
@@ -304,7 +332,7 @@ class Inherit(framework.BindableThunk, AstNode):
 class UnOp(framework.Thunk, AstNode):
   def __init__(self, span, op_token, right):
     framework.Thunk.__init__(self)
-    AstNode.__init__(self, span, op_token, right)
+    AstNode.__init__(self, span, right)
 
     self.op = op_token.value
     self.right = right
@@ -324,7 +352,7 @@ class UnOp(framework.Thunk, AstNode):
 class BinOp(framework.Thunk, AstNode):
   def __init__(self, span, left, op_token, right):
     framework.Thunk.__init__(self)
-    AstNode.__init__(self, span, left, op_token, right)
+    AstNode.__init__(self, span, left, right)
 
     self.left = left
     self.op = op_token.value
@@ -376,7 +404,7 @@ class Condition(framework.Thunk, AstNode):
 class ListComprehension(framework.Thunk, AstNode):
   def __init__(self, span, expr, var_token, collection, cond=None):
     framework.Thunk.__init__(self)
-    AstNode.__init__(self, span, expr, var_token, collection, cond)
+    AstNode.__init__(self, span, expr, IntroIdentifier.make(var_token), collection, cond)
 
     self.expr = expr
     self.var = var_token.value
@@ -528,7 +556,7 @@ class Deref(framework.Thunk, AstNode):
   """Dereferencing of a dictionary-like object."""
   def __init__(self, span, haystack_node, needle_token):
     framework.Thunk.__init__(self)
-    AstNode.__init__(self, span, haystack_node, needle_token)
+    AstNode.__init__(self, span, haystack_node)
 
     self.haystack_node = haystack_node
     self.needle = needle_token.value
@@ -597,6 +625,22 @@ def call_fn(fn, arglist, env):
 
 def is_tuple_member(x):
   return isinstance(x, TupleMemberNode)
+
+
+class UnparseableNode(framework.Thunk, AstNode):
+  """An unparseable exception."""
+  def __init__(self, span):
+    framework.Thunk.__init__(self)
+    AstNode.__init__(self, span)
+
+  def eval(self, env):
+    raise exceptions.EvaluationError(self.span.annotated_source('Unparseable expression'))
+
+  def __getattr__(self, key):
+    raise UnparseableAccess('Accessing attribute %r of UnparseableNode' % key)
+
+  def __repr__(self):
+    return '<!' + self.span.original_string() + '!>'
 
 
 #----------------------------------------------------------------------
@@ -678,7 +722,6 @@ class TupleSchemaAccess(object):
     self.tuple = tuple
 
   def __getitem__(self, key):
-    print key, self.tuple.get_schema_spec(key)
     return self.tuple.get_schema_spec(key)
 
   def __contains__(self, key):
@@ -915,4 +958,4 @@ def reads(s, filename, loader, implicit_tuple, allow_errors):
 
     return result[0]
   except sparse.ParseError as e:
-    raise exceptions.ParseError(e.span, e.add_context(filename, s).message)
+    raise exceptions.ParseError(e.span, e.message)

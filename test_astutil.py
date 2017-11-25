@@ -1,10 +1,9 @@
 import unittest
 
-import pyparsing
-
 import gcl
 from gcl import ast_util
-from gcl import ast
+from gcl import ast2 as ast
+from gcl import sparse
 from gcl import framework
 
 class TestEnumerateScope(unittest.TestCase):
@@ -14,8 +13,8 @@ class TestEnumerateScope(unittest.TestCase):
 
   def testScopeObjectHasLocation(self):
     scope = readAndQueryScope('|henk = 5')
-    self.assertEquals(1, scope['henk'].location.lineno)
-    self.assertEquals(1, scope['henk'].location.col)
+    self.assertEquals(1, scope['henk'].span.line_nr)
+    self.assertEquals(0, scope['henk'].span.col_nr)
 
   def testInherited(self):
     source = """
@@ -53,13 +52,16 @@ class TestEnumerateScope(unittest.TestCase):
     """
     scope = readAndQueryScope(source)  # inner tuple
     assert 'henk' in scope
-    assert scope['henk'].location.lineno == 2  # Find the right henk
+    assert scope['henk'].span.line_nr == 2  # Find the right henk
 
   def testIncludeDefaultBuiltins(self):
-    tree = gcl.reads('henk = 5', filename='input.gcl')
-    rootpath = tree.find_tokens(gcl.SourceQuery('input.gcl', 1, 1))
-    return ast_util.enumerate_scope(rootpath, include_default_builtins=True)
-    assert '+' in scope
+    source = 'henk = 5|'
+    source, line, col = find_cursor(source)
+    tree = gcl.reads(source, filename='input.gcl')
+    rootpath = tree.find_tokens(gcl.SourceQuery('input.gcl', line, col))
+    scope = ast_util.enumerate_scope(rootpath, include_default_builtins=True)
+    print scope.keys()
+    assert 'len' in scope
 
 
 class TestBrokenParseRecovery(unittest.TestCase):
@@ -193,7 +195,7 @@ class TestAutoComplete(unittest.TestCase):
   def testParsedLocationOfIncompleteDoubleDeref(self):
     x = ast.lenient_grammar().expression.parseString('bar.y.')[0]
     left = x._haystack
-    self.assertLess(left.location.end_offset, x.location.end_offset)
+    self.assertLess(left.span.end, x.span.end)
 
   def testNonDerefAutocomplete(self):
     suggestions = readAndAutocomplete("""
@@ -365,14 +367,14 @@ class TestFindValue(unittest.TestCase):
   def testDoFindSideValues(self):
     found = readAndFindValue("""
     something = 3;
-    else = some|thing;
+    other = some|thing;
     """)
     self.assertEquals(3, found)
 
   def testInherit(self):
     found = readAndFindValue("""
     something = 3;
-    else = { inherit somet|hing }
+    other = { inherit somet|hing }
     """)
     self.assertEquals(3, found)
 
@@ -403,12 +405,11 @@ def readAndFindValue(source):
   return ast_util.find_value_at_cursor(tree, 'input.gcl', line, col)
 
 
-
 def find_cursor(source):
   """Return (source, line, col) based on the | character, stripping the source."""
   source = source.strip()
   i = source.index('|')
   assert i != -1
-  l = pyparsing.lineno(i, source)
-  c = pyparsing.col(i, source)
-  return source.replace('|', ''), l, c
+  span = sparse.Span(i, i, sparse.File('', source))
+  line, _, col = span.line_context()
+  return source.replace('|', ''), line, col + 1

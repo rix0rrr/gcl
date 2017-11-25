@@ -294,12 +294,21 @@ def tokenize(scanner, s):
 
 class TestErrorReporting(unittest.TestCase):
   def test_find_line(self):
-    self.assertEquals((1, 'ab', 0), sparse.find_line_context(*line_with_marker('|ab\ncd\nef')))
-    self.assertEquals((1, 'ab', 2), sparse.find_line_context(*line_with_marker('ab|\ncd\nef')))
-    self.assertEquals((2, 'cd', 0), sparse.find_line_context(*line_with_marker('ab\n|cd\nef')))
-    self.assertEquals((2, 'cd', 1), sparse.find_line_context(*line_with_marker('ab\nc|d\nef')))
-    self.assertEquals((2, 'cd', 2), sparse.find_line_context(*line_with_marker('ab\ncd|\nef')))
-    self.assertEquals((3, 'ef', 2), sparse.find_line_context(*line_with_marker('ab\ncd\nef|')))
+    self.do_index_test_two_ways(1, 'ab', 0, '|ab\ncd\nef')
+    self.do_index_test_two_ways(1, 'ab', 2, 'ab|\ncd\nef')
+    self.do_index_test_two_ways(2, 'cd', 0, 'ab\n|cd\nef')
+    self.do_index_test_two_ways(2, 'cd', 1, 'ab\nc|d\nef')
+    self.do_index_test_two_ways(2, 'cd', 2, 'ab\ncd|\nef')
+    self.do_index_test_two_ways(3, 'ef', 2, 'ab\ncd\nef|')
+
+  def do_index_test_two_ways(self, expected_line_nr, expected_text, expected_col, source_with_marker):
+    plain_text, marker_ix = line_with_marker(source_with_marker)
+
+    line_nr, text, col = sparse.find_line_context(plain_text, marker_ix)
+    self.assertEquals((expected_line_nr, expected_text, expected_col), (line_nr, text, col))
+
+    found_ix = sparse.linecol_to_index(plain_text, line_nr, col)
+    self.assertEquals(marker_ix, found_ix)
 
 
 def line_with_marker(text):
