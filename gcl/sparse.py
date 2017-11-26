@@ -26,6 +26,55 @@ from sre_compile import compile as sre_compile
 from sre_constants import BRANCH, SUBPATTERN
 
 
+__all__ = [
+  'And',
+  'AnythingExcept',
+  'RecoverFailure',
+  'DOUBLE_QUOTED_STRING',
+  'END_OF_FILE',
+  'FLOAT',
+  'INTEGER',
+  'NO_DEFAULT',
+  'SINGLE_QUOTED_STRING',
+  'WHITESPACE',
+  'Either',
+  'EmptySpan',
+  'File',
+  'Forward',
+  'LazyList',
+  'Never',
+  'OneOrMore',
+  'Optional',
+  'ParseError',
+  'ParseFailure',
+  'ParseState',
+  'ParseSuccess',
+  'Q',
+  'Rule',
+  'Scanner',
+  'SourceQuery',
+  'Span',
+  'Splat',
+  'Symbol',
+  'T',
+  'Token',
+  'TokenStream',
+  'Trace',
+  'ZeroOrMore',
+  'braced_list',
+  'delimited_list',
+  'empty_span',
+  'make_parser',
+  'parenthesized',
+  'parse',
+  'parse_all',
+  'print_parser',
+  'query_to_span',
+  'quoted_string_process',
+  'quoted_string_regex',
+  ]
+
+
 class Symbol(object):
   def __init__(self, name):
     self.name = name
@@ -300,6 +349,16 @@ class CapturingGrammar(Grammar):
     return CapturingParser(self.inner.make_parser(), self.action, self.name)
 
 
+class RecoverFailure(Grammar):
+  def __init__(self, inner, resync):
+    Grammar.__init__(self)
+    self.inner = inner.take_reference()
+    self.resync = resync.take_reference()
+
+  def make_parser(self):
+    return RecoverFailureParser(self.inner.make_parser(), self.resync.make_parser(), self.name)
+
+
 class T(Grammar):
   def __init__(self, token_type, capture=True):
     Grammar.__init__(self)
@@ -313,9 +372,65 @@ class T(Grammar):
     return AtomParser(self.token_type, self.capture, self.name)
 
 
+class Never(Grammar):
+  def __init__(self):
+    Grammar.__init__(self)
+
+  def make_parser(self):
+    return FailParser(self.name)
+
+
 def Q(token_type):
   """Quiet token."""
   return T(token_type, capture=False)
+
+
+
+
+
+class And(Grammar):
+  def __init__(self, left, right):
+    assert(isinstance(left, Grammar) and isinstance(right, Grammar))
+    Grammar.__init__(self)
+    self.left = left.take_reference()
+    self.right = right.take_reference()
+
+  def make_parser(self):
+    left_parser = self.left.make_parser()
+    right_parser = self.right.make_parser()
+
+    return SequenceParser([left_parser, right_parser], self.name)
+
+
+class AnythingExcept(Grammar):
+  def __init__(self, *token_types):
+    Grammar.__init__(self)
+    self.token_types = token_types
+    self.capture = True
+
+  def suppress(self):
+    ret = AnythingExcept(*self.token_types)
+    ret.capture = False
+    return ret
+
+  def make_parser(self):
+    return AnythingExceptParser(list(self.token_types) + [END_OF_FILE], self.capture, self.name)
+
+
+class Never(Grammar):
+  def __init__(self):
+    Grammar.__init__(self)
+
+  def make_parser(self):
+    return FailParser(self.name)
+
+
+def Q(token_type):
+  """Quiet token."""
+  return T(token_type, capture=False)
+
+
+
 
 
 class And(Grammar):
@@ -489,6 +604,19 @@ class Parser(object):
 
 
 @parser_class
+class FailParser(Parser):
+  def __init__(self, name):
+    Parser.__init__(self, name)
+
+  def prefix_token_types(self):
+    return []
+
+  @trace_parser
+  def parse(self, state):
+    return state.make_failure(state.current_token(), 'This rule can never match')
+
+
+@parser_class
 class AtomParser(Parser):
   def __init__(self, token_type, capture, name):
     Parser.__init__(self, name)
@@ -537,6 +665,24 @@ class PushValueParser(Parser):
 
   def caption(self):
     return 'PushValueParser [%d]' % self.counter
+
+
+@parser_class
+class RecoverFailureParser(Parser):
+  def __init__(self, inner, resync, name):
+    Parser.__init__(self, name)
+    self.inner = inner
+    self.resync = resync
+
+  def prefix_token_types(self):
+    return self.inner.prefix_token_types()
+
+  @trace_parser
+  def parse(self, state):
+    ret = self.inner.parse(state)
+    if not ret.is_success:
+      return self.resync.parse(ret.recover())
+    return ret
 
 
 @parser_class
@@ -615,7 +761,7 @@ class AlternativesParser(Parser):
   @trace_parser
   def parse(self, state):
     token = state.current_token()
-    parsers = self.jump.get(token.type, [])
+    parsers = self.jump.get(token.type, []) + self.jump.get(AND_MORE, [])
     if not parsers:
       if AND_MORE in self.prefix_token_types():
         # It MIGHT be acceptable to parse nothing here. Try returning the input state and trying there.
@@ -789,6 +935,24 @@ class CapturingParser(Parser):
 
 
 @parser_class
+class AnythingExceptParser(Parser):
+  def __init__(self, token_types, capture, name):
+    Parser.__init__(self, name)
+    self.capture = capture
+    self.token_types = token_types
+
+  def prefix_token_types(self):
+    return [AND_MORE]
+
+  @trace_parser
+  def parse(self, state):
+    token = state.current_token()
+    if token.type in self.token_types:
+      return state.make_failure(token, "Got token '%s', not allowed here" % token.value)
+    return state.capture() if self.capture else state.skip()
+
+
+@parser_class
 class ForwardParser(Parser):
   def __init__(self, name):
     Parser.__init__(self, name)
@@ -916,7 +1080,7 @@ class ParseSuccess(ParseState):
 
   def make_failure(self, token, error):
     """Return the farthest error between the one on this success state and a new one."""
-    fresh = ParseFailure(token, error)
+    fresh = ParseFailure(token, error, self)
     if not self.furthest_failure:
       return fresh
     return self.furthest_failure.furthest(fresh)
@@ -932,9 +1096,10 @@ def values_from_value(value):
 class ParseFailure(ParseState):
   is_success = False
 
-  def __init__(self, token, error):
+  def __init__(self, token, error, state):
     self.token = token
     self.error = error
+    self.state = state
     self.is_backtrackable_failure = True
 
     if Trace.enabled:
@@ -945,6 +1110,9 @@ class ParseFailure(ParseState):
       return self
     else:
       return other
+
+  def recover(self):
+    return self.state
 
   def show(self):
     return '\n'.join(self.token.span.annotated_source(self.error))

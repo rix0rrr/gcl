@@ -111,6 +111,35 @@ class TestCombinators(unittest.TestCase):
     with self.assertRaises(sparse.ParseError):
       parse_string(grammar, '{nope}')
 
+  def test_anything_except(self):
+    grammar = T('a') + sparse.AnythingExcept('b', 'c') + T('d')
+
+    parse_string(grammar, 'aad')
+
+    with self.assertRaises(sparse.ParseError):
+      parse_string(grammar, 'abd')
+
+    with self.assertRaises(sparse.ParseError):
+      parse_string(grammar, 'acd')
+
+  def test_eat_failures(self):
+    consume_parse_failures = sparse.ZeroOrMore(sparse.AnythingExcept(';', '}'))
+
+    grammar = sparse.RecoverFailure(sparse.OneOrMore(T('a')), consume_parse_failures)
+
+    parse_string(grammar, 'aaa')
+    parse_string(grammar, 'bcd')
+
+    with self.assertRaises(sparse.ParseError):
+      # Don't know if I want this, but this is the behavior we have right now
+      parse_string(grammar, 'aab')
+
+  def test_never(self):
+    grammar = T('a') + sparse.Never()
+
+    with self.assertRaises(sparse.ParseError):
+      parse_string(grammar, 'abd')
+
 
 class TestGrammarHelpers(unittest.TestCase):
   def test_parenthesized(self):
@@ -334,12 +363,8 @@ def ts(file):
 
 
 def parse_string(grammar, tokens):
-  try:
-    file = sparse.File('<input>', tokens)
-    return sparse.parse_all(sparse.make_parser(grammar), ts(file), file)
-  except ParseError as e:
-    #sparse.print_parser(sparse.make_parser(grammar), sys.stdout)
-    raise e.add_context('input.gcl', ''.join(str(t) for t in tokens))
+  file = sparse.File('<input>', tokens)
+  return sparse.parse_all(sparse.make_parser(grammar), ts(file), file)
 
 
 def values(tokens):
