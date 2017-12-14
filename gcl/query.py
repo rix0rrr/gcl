@@ -13,29 +13,45 @@ from gcl import framework
 from gcl import ast
 from gcl import util
 
+from gcl.sparse import T, Q, Rule
+from gcl import sparse
+
 
 class QueryError(RuntimeError):
   pass
 
-def mkAlternates(x):
-  return tuple(x)
+def mkAlternates(_, *x):
+  return x
 
 
-gcl_grammar = ast.normal_grammar()
+scanner = sparse.Scanner([
+    sparse.WHITESPACE,
+    sparse.Syntax('identifier',  r'[a-zA-Z_]([a-zA-Z0-9_:-]*[a-zA-Z0-9_])?'),
+    sparse.Syntax('int_literal', r'\d+'),
+    sparse.Syntax('star',        r'\*'),
+    sparse.Syntax('symbol',      '[' + ''.join('\\' + s for s in '[]{},.') + ']'),
+    ])
 
-variable = gcl_grammar.variable.copy().setParseAction(lambda x: str(x[0]))
-alts = ast.bracketedList('{', '}', ',', variable).setParseAction(mkAlternates)
-# integer parses as [start_offset, 'matched', end_offset]
-list_index = ast.sym('[') + gcl_grammar.integer.copy().setParseAction(lambda ts: int(ts[1])) + ast.sym(']')
-everything = p.Literal('*')
-element = variable | alts | list_index | everything
 
-selector = p.Group(p.Optional(element + p.ZeroOrMore(ast.sym('.') + element)))
+def make_grammar():
+  variable = Rule('variable') >> T('identifier') >> (lambda _, x: x.value)
+  alts = Rule('alts') >> ast.braced_list('{', '}', ',', variable) >> mkAlternates
+  # integer parses as [start_offset, 'matched', end_offset]
+  list_index = Rule('list_index') >> Q('[') + T('int_literal') + Q(']') >> (lambda _, x: int(x.value))
+  everything = Rule('everything') >> T('star') >> (lambda _, x: x.value)
+  element = variable | alts | list_index | everything
+
+  selector = sparse.Optional(element + sparse.ZeroOrMore(Q('.') + element))
+
+  return selector
 
 
 def parseSelector(s):
   try:
-    return selector.parseString(s, parseAll=True)[0]
+    file = sparse.File('<selector>', s)
+    tokens = list(scanner.tokenize(file))
+    parser = sparse.make_parser(make_grammar())
+    return sparse.parse_all(parser, tokens, file)
   except p.ParseException as e:
     raise RuntimeError('Error parsing %r: %s' % (s, e))
 
@@ -78,6 +94,7 @@ class GPath(object):
     if not isinstance(spec, list):
       spec = [spec]
     self.selectors = [list(parseSelector(x)) for x in spec]
+    print self.selectors
 
   def everything(self):
     return not self.selectors
