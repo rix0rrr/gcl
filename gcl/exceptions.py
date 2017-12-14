@@ -20,12 +20,18 @@ class ParseError(GCLError):
 
 
 class EvaluationError(GCLError):
-  def __init__(self, message, inner=None):
-    super(EvaluationError, self).__init__(message)
+  def __init__(self, message, span=None, inner=None):
+    if span:
+      nice_message = '\n'.join(span.annotated_source(message))
+    else:
+      nice_message = message
+
+    super(EvaluationError, self).__init__(nice_message)
+    self.span = span
     self.inner = inner
 
   def __str__(self):
-    return self.args[0] + ('\n' + str(self.inner) if self.inner else '')
+    return self.message + ('\n' + str(self.inner) if self.inner else '')
 
 
 class UnboundNameError(EvaluationError):

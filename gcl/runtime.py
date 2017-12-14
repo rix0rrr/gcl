@@ -51,14 +51,9 @@ class Tuple(framework.TupleLike):
       raise ValueError('Trying to access tuple as a list')
 
     if key not in self._value_cache:
-      print 'getting', key
       x = self.get_no_validate(key)
-      print 'my schema', self.tuple_schema
       sub_schema = self.tuple_schema.get_subschema(key)
-
-      print 'got subschema', sub_schema
       schema.validate(x, sub_schema)
-
       schema.attach(x, sub_schema)
       self._value_cache[key] = x
 

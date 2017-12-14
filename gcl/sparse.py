@@ -128,7 +128,7 @@ class Span(collections.namedtuple('Span', ('begin', 'end', 'file'))):
     """Return the line number and complete line of the current span in the original file.
 
     Returns:
-      Tuple of (line_nr, line_text, offset_in_line). line_nr is 1-based.
+      Tuple of (line_nr, line_text, offset_in_line). line_nr is 1-based. Offset-in-line is 0-based.
     """
     return find_line_context(self.file.contents, self.begin)
 
@@ -596,7 +596,7 @@ class Parser(object):
     return []
 
   def caption(self):
-    raise NotImplementedError("Umm.")
+    return self.name or self.__class__.__name__
 
   def show(self):
     name = self.name if self.name else self.caption()
@@ -634,7 +634,7 @@ class AtomParser(Parser):
     return state.capture() if self.capture else state.skip()
 
   def caption(self):
-    return 'AtomParser(%s) [%d]' % (self.token_type, self.counter)
+    return Parser.caption(self) + '(%s)' % self.token_type
 
 
 @parser_class
@@ -647,7 +647,7 @@ class NullParser(Parser):
     return state
 
   def caption(self):
-    return 'NullParser [%d]' % self.counter
+    return self.name or 'NullParser [%d]' % self.counter
 
 
 @parser_class
@@ -664,7 +664,7 @@ class PushValueParser(Parser):
     return state.push_value(self.value)
 
   def caption(self):
-    return 'PushValueParser [%d]' % self.counter
+    return self.name or 'PushValueParser [%d]' % self.counter
 
 
 @parser_class
@@ -677,11 +677,20 @@ class RecoverFailureParser(Parser):
   def prefix_token_types(self):
     return self.inner.prefix_token_types()
 
+  def caption(self):
+    return self.name or 'RecoverFailure'
+
   @trace_parser
   def parse(self, state):
     ret = self.inner.parse(state)
     if not ret.is_success:
-      return self.resync.parse(ret.recover())
+      x = self.resync.parse(state)
+      # Only if resync succeeded, return that
+      if x.is_success and x.tokens.i > ret.state.tokens.i:
+        if Trace.enabled:
+          Trace.report('Recovered.')
+        return x
+
     return ret
 
 
@@ -724,7 +733,7 @@ class SequenceParser(Parser):
     return self.parsers
 
   def caption(self):
-    return 'SequenceParser [%d]' % self.counter
+    return self.name or 'SequenceParser [%d]' % self.counter
 
 
 class NoBacktrackingMarker(object):
@@ -785,7 +794,7 @@ class AlternativesParser(Parser):
     return self.parsers
 
   def caption(self):
-    return 'Alternatives [%d]' % self.counter
+    return self.name or 'Alternatives [%d]' % self.counter
 
 
 @parser_class
@@ -816,7 +825,7 @@ class OptionalParser(Parser):
     return [self.inner]
 
   def caption(self):
-    return 'Optional [%d]' % (self.counter)
+    return self.name or 'Optional [%d]' % (self.counter)
 
 
 @parser_class
@@ -869,7 +878,7 @@ class CountParser(Parser):
     return [self.inner]
 
   def caption(self):
-    return 'Count(%s..%s) [%d]' % (self.min_count, self.max_count, self.counter)
+    return self.name or 'Count(%s..%s) [%d]' % (self.min_count, self.max_count, self.counter)
 
 
 @parser_class
@@ -886,7 +895,7 @@ class EndOfFileParser(Parser):
     return state
 
   def caption(self):
-    return 'EOF [%d]' % self.counter
+    return self.name or 'EOF [%d]' % self.counter
 
 
 @parser_class
@@ -930,9 +939,6 @@ class CapturingParser(Parser):
   def children(self):
     return [self.inner]
 
-  def caption(self):
-    return 'Capture [%d]' % self.counter
-
 
 @parser_class
 class AnythingExceptParser(Parser):
@@ -974,34 +980,7 @@ class ForwardParser(Parser):
     return [self.inner]
 
   def caption(self):
-    return 'Forward [%d]' % self.counter
-
-
-
-# FIXME: This thing does not make sense.
-@parser_class
-class BacktrackingScopeParser(Parser):
-  def __init__(self, inner, name):
-    Parser.__init__(self, name)
-    self.inner = inner
-    self.inner_parse = inner.parse
-
-  def prefix_token_types(self):
-    return self.inner.prefix_token_types()
-
-  @trace_parser
-  def parse(self, state):
-    # Return whatever the inner parser produces, but reset the backtracking state
-    # to whatever it was coming into this parser. Doesn't need a new object creation.
-    ret = self.inner_parse(state)
-    ret.can_backtrack = state.allow_backtracking
-    return ret
-
-  def children(self):
-    return [self.inner]
-
-  def caption(self):
-    return 'BacktrackingScopeParser'
+    return self.inner.caption()
 
 
 class Splat(collections.namedtuple('Splat', ['values'])):
@@ -1043,7 +1022,6 @@ class ParseSuccess(ParseState):
     self.current_token = self.tokens.current
     self.previous_token = self.tokens.previous
 
-
   def with_values(self, values):
     return ParseSuccess(self.tokens, values, self.furthest_failure)
 
@@ -1076,7 +1054,13 @@ class ParseSuccess(ParseState):
     return self.with_failure(state)
 
   def show(self):
-    return '%s' % (self.tokens.show())
+    return 'At token %s, %r' % (self.tokens.i, self.tokens.current())
+
+  def show_success(self):
+    return 'Success at token %s, %r' % (self.tokens.i - 1, self.tokens.previous())
+
+  def show_position(self, message='here'):
+    return '\n'.join(self.current_token().span.annotated_source(message))
 
   def make_failure(self, token, error):
     """Return the farthest error between the one on this success state and a new one."""
@@ -1138,7 +1122,7 @@ class TokenStream(object):
     return TokenStream(self.lazy_list, self.i + 1, self.file)
 
   def show(self):
-    return str(self.current())
+    return 'token %s, %r' % (self.i, self.current())
 
 
 class EagerList(list):
@@ -1186,10 +1170,9 @@ class LazyList(object):
 
 
 class Trace(object):
-  trace_stack = []
+  current_trace_stack = []
   enabled = False
   names_only = False
-  parse_failures = collections.Counter()
 
   def __init__(self, parser, state):
     self.parser = parser
@@ -1198,14 +1181,14 @@ class Trace(object):
 
   def __enter__(self):
     if Trace.enabled and (not Trace.names_only or self.parser.name):
-      print('  ' * len(Trace.trace_stack) + '%s  |  %s' % (self.parser.show()[0], self.state.show()))
+      print('  ' * len(Trace.current_trace_stack) + '%s  |  %s' % (self.parser.show()[0], self.state.show()))
       self.pushed = True
-      Trace.trace_stack.append(self)
+      Trace.current_trace_stack.append(self)
     return self
 
   def __exit__(self, value, type, tb):
     if self.pushed:
-      Trace.trace_stack.pop()
+      Trace.current_trace_stack.pop()
 
   @staticmethod
   def enable(enabled, names_only=False):
@@ -1227,21 +1210,18 @@ class Trace(object):
 
   @staticmethod
   def report(message, *args):
-    if Trace.enabled:
-      print('  ' * len(Trace.trace_stack) + (message % args))
-      pass
+    prefix = '  ' * len(Trace.current_trace_stack) + '> '
+    s = message % args
+    print(prefix + s.replace('\n', '\n' + prefix))
 
   @staticmethod
   def success(state):
-    pass
-    if Trace.enabled:
-      print('  ' * len(Trace.trace_stack) + '*** ' + state.show())
+    print('  ' * len(Trace.current_trace_stack) + '*** ' + state.show_success())
 
   @staticmethod
   def failure(state):
-    if Trace.enabled:
-      print('  ' * len(Trace.trace_stack) + '!!! ' + state.show())
-      Trace.parse_failures.update([Trace.trace_stack[-1].parser])
+    prefix = '  ' * len(Trace.current_trace_stack) + '!!! '
+    print(prefix + state.show().replace('\n', '\n' + prefix))
 
 
 def make_tracing_method(method):
@@ -1282,9 +1262,6 @@ def print_parser(parser, stream):
     caption, children = top.show()
     prefix = '|   ' * max(0, depth - 1) + ('|---' if depth > 0 else '')
     suffix = ' (**recursion**)' if top in uniques else ''
-
-    if Trace.parse_failures[top]:
-      suffix += ' (%d failures)' % Trace.parse_failures[top]
 
     print('%s%s%s' % (prefix, caption, suffix))
 

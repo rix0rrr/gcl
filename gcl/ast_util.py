@@ -16,6 +16,7 @@ from . import schema
 from . import util
 
 def path_until(rootpath, pred):
+  """Return the given root path until the most specific element that matches a predicate."""
   for i in range(len(rootpath), 0, -1):
     if pred(rootpath[i - 1]):
       return rootpath[:i]
@@ -123,6 +124,13 @@ def find_deref_completions(ast_rootpath, root_env=gcl.default_env):
     path = path_until(ast_rootpath, is_deref_node)
     if not path:
       return {}
+
+    # The last one is a deref, where we ignore the key, and simply
+    # return the keys from the inflated tuple.
+
+    # One exception: if the tuple has a MISSING_TOKEN as identifier
+    # (if the cursor is at tuple.|), then the rootpath shows up slightly
+    # differently. Account for that.
     deref = path[-1]
     haystack = deref.haystack(tup.env(tup))
     if not hasattr(haystack, 'keys'):
@@ -137,16 +145,26 @@ def get_completion(haystack, name):
 
 def is_identifier_position(rootpath):
   """Return whether the cursor is in an identifier declaration."""
-  return rootpath and isinstance(rootpath[-1], ast.IntroIdentifier)
+  # In case you're typing an incomplete identifier at the end of a tuple,
+  # it parses as a 'ident = <void>', and because of the way the spans are arranged
+  # you'll find both the ident and the void. That also counts as identifier position.
+  return ((len(rootpath) >= 1 and isinstance(rootpath[-1], ast.IntroIdentifier))
+    or (len(rootpath) >= 2 and isinstance(rootpath[-2], ast.IntroIdentifier) and isinstance(rootpath[-1], ast.Void)))
 
 
 def find_completions_at_cursor(ast_tree, filename, line, col, root_env=gcl.default_env):
   """Find completions at the cursor.
 
   Return a dict of { name => Completion } objects.
+
+  Arguments:
+    line: int, 1-based line number
+    col: int, 1-based column number
   """
-  q = gcl.SourceQuery(filename, line, col - 1)
+  q = gcl.SourceQuery(filename, line, col)
   rootpath = ast_tree.find_tokens(q)
+
+  print rootpath
 
   if is_identifier_position(rootpath):
     return find_inherited_key_completions(rootpath, root_env)

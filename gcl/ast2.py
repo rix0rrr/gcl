@@ -16,7 +16,7 @@ from . import exceptions
 from . import functions
 
 
-DEBUG = False
+DEBUG = True
 
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,9 @@ def identity(x):
 
 class UnparseableAccess(RuntimeError):
   pass
+
+
+MISSING_TOKEN = sparse.Token('missing-identifier', 'missing-identifier', sparse.empty_span)
 
 #----------------------------------------------------------------------
 #  AST NODES
@@ -70,9 +73,7 @@ class AstNode(object):
     return into
 
   def reraise_in_context(self, e, doing='while evaluating'):
-    lines = self.span.annotated_source(doing)
-    msg = '\n'.join(lines)
-    raise exceptions.EvaluationError(msg, e)
+    raise exceptions.EvaluationError(doing, inner=e, span=self.span)
 
 
 class Var(framework.Thunk, AstNode):
@@ -172,7 +173,7 @@ class TupleMemberNode(AstNode):
     # generate better error messages. Not doing it here makes the grammar a lot
     # messier.
     if isinstance(self.value_expression, Void):
-      self.value_expression.set_void_name(self.name)
+      self.value_expression.set_void_context(self.name, self.span)
 
   def attach_comment(self, comment):
     self.comment.add_line(comment)
@@ -231,8 +232,12 @@ class RuntimeTupleNode(TupleNode):
   dictionaries to Tuple objects at runtime, so we need to invent a tuple-like object.
   """
   def __init__(self, dct):
-    self.members = [TupleMemberNode(sparse.empty_span, sparse.Token('identifier', key, sparse.empty_span), no_schema, value)
-                    for key, value in dct.items()]
+    self.members = []
+    for key, value in dct.items():
+      identifier_token = sparse.Token('identifier', key, sparse.empty_span)
+      # Does not need to be a string, but the mapper for 'string_literal' is 'identity'
+      value_token = sparse.Token('string_literal', value, sparse.empty_span)
+      self.members.append(TupleMemberNode(sparse.empty_span, identifier_token, no_schema, Literal(sparse.empty_span, value_token)))
     self.member = {m.name: m for m in self.members}
 
 
@@ -288,11 +293,12 @@ class Void(framework.Thunk, AstNode):
 
     self.void_name = None
 
-  def set_void_name(self, name):
+  def set_void_context(self, name, span):
     self.void_name = name
+    self.span = span
 
   def eval(self, env):
-    raise exceptions.EvaluationError('%s: unbound value' % self.void_name)
+    raise exceptions.EvaluationError('%s: unbound value' % self.void_name, span=self.span)
 
   def is_unbound(self):
     # Overridden from Thunk
@@ -317,7 +323,7 @@ class Inherit(framework.BindableThunk, AstNode):
 
   def eval(self, env):
     if not self.env:
-      raise exceptions.EvaluationError("Inherited key")
+      raise exceptions.EvaluationError("Inherited key", span=self.span)
     return self.env[self.identifier]
 
   def __repr__(self):
@@ -342,7 +348,7 @@ class UnOp(framework.Thunk, AstNode):
   def eval(self, env):
     fn = functions.unary_operators.get(self.op, None)
     if fn is None:
-      raise exceptions.EvaluationError('Unknown unary operator: %s' % self.op)
+      raise exceptions.EvaluationError('Unknown unary operator: %s' % self.op, span=self.span)
     return call_fn(fn, ArgList(sparse.empty_span, self.right), env)
 
   def __repr__(self):
@@ -363,7 +369,7 @@ class BinOp(framework.Thunk, AstNode):
   def eval(self, env):
     fn = functions.all_binary_operators.get(self.op, None)
     if fn is None:
-      raise exceptions.EvaluationError('Unknown operator: %s' % self.op)
+      raise exceptions.EvaluationError('Unknown operator: %s' % self.op, span=self.span)
 
     return call_fn(fn, ArgList(sparse.empty_span, self.left, self.right), env)
 
@@ -436,7 +442,7 @@ class Include(framework.Thunk, AstNode):
     file_ref = framework.eval(self.file_ref, env)
     if not framework.is_str(file_ref):
       raise exceptions.EvaluationError('Included argument (%r) must be a string, got %r' %
-                            (self.file_ref, file_ref))
+                            (self.file_ref, file_ref), span=self.span)
 
     loaded = self.loader(self.current_file, file_ref, env=env.root)
     if DEBUG:
@@ -505,13 +511,12 @@ class Application(framework.Thunk, AstNode):
 
       # Any other callable type, just use as a Python function
       if not callable(fn):
-        raise exceptions.EvaluationError('Result of %r (%r) not callable' % (self.left, fn))
+        raise exceptions.EvaluationError('Result of %r (%r) not callable' % (self.left, fn), span=self.span)
 
       return call_fn(fn, self.right_as_list(), env)
     except Exception as e:
       # Wrap exceptions
       import traceback; traceback.print_exc()
-
       self.reraise_in_context(e, 'while calling \'%r\'' % self)
 
   def __repr__(self):
@@ -520,7 +525,7 @@ class Application(framework.Thunk, AstNode):
   def applyTuple(self, tuple, right, env):
     """Apply a tuple to something else."""
     if len(right) != 1:
-      raise exceptions.EvaluationError('Tuple (%r) must only be applied to exactly argument, got %r (evaluates to %r)' % (self.left, self.right, right))
+      raise exceptions.EvaluationError('Tuple (%r) must only be applied to exactly argument, got %r (evaluates to %r)' % (self.left, self.right, right), span=self.span)
     right = right[0]
 
     return tuple(right)
@@ -528,13 +533,13 @@ class Application(framework.Thunk, AstNode):
   def applyIndex(self, lst, right):
     """Apply a list to something else."""
     if len(right) != 1:
-      raise exceptions.EvaluationError('%r can only be applied to one argument, got %r' % (self.left, self.right))
+      raise exceptions.EvaluationError('%r can only be applied to one argument, got %r' % (self.left, self.right), span=self.span)
     right = right[0]
 
     if isinstance(right, int):
       return lst[right]
 
-    raise exceptions.EvaluationError("Can't apply %r to argument (%r): integer expected, got %r" % (self.left, self.right, right))
+    raise exceptions.EvaluationError("Can't apply %r to argument (%r): integer expected, got %r" % (self.left, self.right, right), self=self.span)
 
   @staticmethod
   def make(_, *atoms):
@@ -581,11 +586,17 @@ class Deref(framework.Thunk, AstNode):
     return '%s.%s' % (self.haystack_node, self.needle)
 
   @staticmethod
-  def make(span, *tokens):
+  def make(full_span, *tokens):
     tokens = list(tokens)
     while len(tokens) > 1:
       tokens[0:2] = [Deref(tokens[0].span + tokens[1].span, tokens[0], tokens[1])]
-    return tokens[0]
+
+    token = tokens[0]
+
+    # Make sure the final produced Deref has a span that extends at least as far as the span
+    # detected by the parser.
+    token.span = token.span.until(full_span)
+    return token
 
 
 def nonempty(s):
@@ -629,12 +640,12 @@ def is_tuple_member(x):
 
 class UnparseableNode(framework.Thunk, AstNode):
   """An unparseable exception."""
-  def __init__(self, span):
+  def __init__(self, span, *tokens):
     framework.Thunk.__init__(self)
     AstNode.__init__(self, span)
 
   def eval(self, env):
-    raise exceptions.EvaluationError(self.span.annotated_source('Unparseable expression'))
+    raise exceptions.EvaluationError('Unparseable expression', span=self.span)
 
   def __getattr__(self, key):
     raise UnparseableAccess('Accessing attribute %r of UnparseableNode' % key)
@@ -776,7 +787,8 @@ def make_schema_from(value, env):
     # deals with both.
     return schema.from_spec([make_schema_from(x, env) for x in value])
 
-  raise exceptions.EvaluationError('Can\'t make a schema from %r' % value)
+  span = value.span if hasattr(value, 'span') else span.empty_span
+  raise exceptions.EvaluationError('Can\'t make a schema from %r' % value, span=span)
 
 
 def make_tuple(x):
@@ -822,13 +834,18 @@ def listMembers(t_sep, expr):
   return sparse.delimited_list(expr, sparse.Q(t_sep))
 
 
-def bracketedList(t_l, t_r, t_sep, expr, allow_missing_close=False):
+def braced_list(t_l, t_r, t_sep, expr, allow_missing_close=False):
   """Parse bracketed list.
 
   Empty list is possible, as is a trailing separator.
   """
+  return braced_expression(t_l, listMembers(t_sep, expr), t_r, allow_missing_close=allow_missing_close)
+
+
+def braced_expression(t_l, inner, t_r, allow_missing_close=False):
+  opener = sparse.Q(t_l)
   closer = sparse.Q(t_r) if not allow_missing_close else sparse.Optional(sparse.Q(t_r))
-  return sparse.Q(t_l) - listMembers(t_sep, expr) + closer
+  return opener - inner + closer
 
 
 def update_node_span(span, node):
@@ -846,6 +863,14 @@ def make_grammar(allow_errors):
 
   if allow_errors in GRAMMAR_CACHE:
     return GRAMMAR_CACHE[allow_errors]
+
+  consume_parse_failures = Rule('consume_parse_failures') >> sparse.OneOrMore(sparse.AnythingExcept(';', '}')) >> UnparseableNode
+
+  def recoverable(inner):
+    if not allow_errors:
+      return inner
+
+    return sparse.RecoverFailure(inner, consume_parse_failures)
 
   class Grammar:
     expression = p.Forward()
@@ -869,17 +894,17 @@ def make_grammar(allow_errors):
 
     expression_value  = Rule('expression_value')  >> Q('=') - expression
     member_value      = Rule('member_value')      >> p.Optional(expression_value, default=Void())
-    named_member      = Rule('named_member')      >> T('identifier') - optional_schema + member_value >> TupleMemberNode
+    named_member      = Rule('named_member')      >> T('identifier') - recoverable(optional_schema + member_value) >> TupleMemberNode
     documented_member = Rule('documented_member') >> p.ZeroOrMore(T('doc_comment')) + named_member >> attach_doc_comment
-    tuple_member      = Rule('tuple_member')      >> inherit_member | documented_member
+    tuple_member      = Rule('tuple_member')      >> recoverable(inherit_member | documented_member)
 
     ErrorAwareTupleNode = functools.partial(TupleNode, allow_errors)
     tuple_members       = Rule('tuple_members') >> listMembers(';', tuple_member) >> ErrorAwareTupleNode
-    tuple               = Rule('tuple')         >> Q('{') - tuple_members + Q('}') >> update_node_span
+    tuple               = Rule('tuple')         >> braced_expression('{', tuple_members, '}', allow_missing_close=allow_errors) >> update_node_span
 
     # Argument list will live by itself as a atom. Actually, it's a tuple, but we
     # don't call it that because we use that term for something else already :)
-    arg_list = Rule('arg_list') >> bracketedList('(', ')', ',', expression) >> ArgList
+    arg_list = Rule('arg_list') >> braced_list('(', ')', ',', expression, allow_missing_close=allow_errors) >> ArgList
 
     parenthesized_expr = Rule('parenthesized_expr') >> p.parenthesized(expression)
 
@@ -899,7 +924,7 @@ def make_grammar(allow_errors):
             | T('null')
             ).action(Literal)
 
-    atom = Rule('atom') >> (tuple
+    atom = recoverable(Rule('atom') >> (tuple
             | literal
             | variable
             | list_comprehension
@@ -908,7 +933,7 @@ def make_grammar(allow_errors):
             | parenthesized_expr
             | if_then_else
             | include
-            )
+            ))
 
     # We have two different forms of function application, so they can have 2
     # different precedences. This one: fn(args), which binds stronger than
@@ -916,7 +941,10 @@ def make_grammar(allow_errors):
     applic1 = Rule('applic1') >> atom - p.ZeroOrMore(arg_list) >> Application.make
 
     # Dereferencing of an expression (obj.bar)
-    deref.set(Rule('deref') >> applic1 - p.ZeroOrMore(Q('.') - T('identifier')) >> Deref.make)
+    deref_after_period = T('identifier')
+    if allow_errors:
+      deref_after_period = p.Optional(deref_after_period, default=MISSING_TOKEN)
+    deref.set(Rule('deref') >> applic1 - p.ZeroOrMore(Q('.') - deref_after_period) >> Deref.make)
 
     # Binary operators before juxtaposition
     factor = deref
@@ -941,6 +969,8 @@ def make_grammar(allow_errors):
   GRAMMAR_CACHE[allow_errors] = Grammar
   return Grammar
 
+def normal_grammar():
+  return make_grammar(False)
 
 def reads(s, filename, loader, implicit_tuple, allow_errors):
   """Load but don't evaluate a GCL expression from a string."""

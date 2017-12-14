@@ -3,7 +3,9 @@ import sys
 import unittest
 
 from gcl import sparse
-from gcl.sparse import T, ParseError
+from gcl.sparse import T, Q, ParseError
+
+
 
 
 class TestCombinators(unittest.TestCase):
@@ -280,7 +282,6 @@ class TestParseActionsAndCapture(unittest.TestCase):
     grammar = sparse.Rule() >> T('a') >> (lambda _, x: 'hi')
     out = parse_string(grammar, 'a')
     self.assertEquals(['hi'], out)
-
 
   # def test_error_reporting_in_default_optional(self):
     # inner = sparse.Optional(T('c') | sparse.ZeroOrMore(T('?')) + (T('a') | T('b')), default='')
